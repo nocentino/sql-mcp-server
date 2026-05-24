@@ -1,277 +1,136 @@
 #!/bin/bash
 ############################################################################################################
-# 5. One MCP Server, Many SQL Server Instances
-#    Architecture plan and migration walkthrough.
+# 4. One MCP Server, Many SQL Server Instances
+#    The connectionManager.ts architecture — lazy pools, per-instance routing, fleet-wide operations.
 #
-#    CURRENT (one server, one instance):
+#    ARCHITECTURE:
 #
-#      ┌──────────────────────┐
-#      │     sql-dba          │   SQL_SERVER=sqlserver
-#      │  sql-mcp-server      │──────────────────────► sqlserver:1433
-#      │     port 3001        │
-#      └──────────────────────┘
+#      mcp.json              sql-mcp-server (port 3001)          SQL Servers
+#      ────────────────      ──────────────────────────────       ───────────────────
+#                            connectionManager.ts
+#      sql-dba               ┌────────────┬────────────┐
+#       :3001/mcp ─────────► │ "SqlServer1" │ "SqlServer2"│
+#                            │    pool    │    pool    │
+#                            │  (max 5)   │  (max 5)   │
+#                            └─────┬──────┴──────┬─────┘
+#                                  │             │
+#                                  ▼             ▼
+#                            sqlserver:1433  sqlserver2:1433
 #
-#    TARGET (one server, many instances):
-#
-#      ┌──────────────────────────────────────────┐
-#      │            sql-dba                       │
-#      │         sql-mcp-server                   │
-#      │            port 3001                     │
-#      │                                          │
-#      │   connectionManager.ts                   │
-#      │   ┌─────────┬───────────┬─────────┐      │
-#      │   │SqlServer1│  prod    │   dev   │      │
-#      │   │  pool   │   pool    │   pool  │      │
-#      │   └────┬────┴─────┬─────┴────┬────┘      │
-#      └────────┼──────────┼──────────┼───────────┘
-#               │          │          │
-#               ▼          ▼          ▼
-#         sqlserver   prod-sql01  dev-sql01
-#           :1433       :1433       :1433
-#
-#    mcp.json stays the same — still one entry "sql-dba".
-#    Copilot picks the right instance by name in its tool calls.
+#    One MCP entry in mcp.json. Both instances reachable via instance_name parameter.
+#    Zero code changes to add a new instance — just edit .env.
 ############################################################################################################
 
 
 ############################################################################################################
-# What changed in the codebase
+# Step 1 — Confirm both SQL Server instances are running
 ############################################################################################################
 
-# NEW file: src/connectionManager.ts
-# Replaces the single global pool in db.ts with a named-pool map.
-# Loads instances from INSTANCES env var (JSON array) or falls back
-# to SQL_SERVER/SQL_USER/SQL_PASSWORD for backwards compatibility.
+docker compose ps
+
+# Both sqlserver (port 1433) and sqlserver2 (port 1434) should be healthy.
+# sqlserver2 was added to docker-compose.yml — no separate docker run needed.
+
+
+############################################################################################################
+# Step 2 — Inspect the instance configuration
+# INSTANCES is a JSON array in .env, loaded via env_file in docker-compose.yml
+############################################################################################################
+
+grep -A 20 'INSTANCES=' .env
+
+
+############################################################################################################
+# Step 3 — Confirm sql-mcp-server registered both instances at startup
+############################################################################################################
+
+docker logs sql-mcp-dba | grep "Registered instances"
+
+# Expected: [db] Registered instances: SqlServer1, SqlServer2
+
+
+############################################################################################################
+# Step 4 — Walk through connectionManager.ts
+# lazy pool creation, per-instance routing, error recovery
+############################################################################################################
 
 code sql-mcp-server/src/connectionManager.ts
 
 
 ############################################################################################################
-# The INSTANCES env var — configure the fleet
-#
-#   INSTANCES=[
-#     {"name":"SqlServer1","host":"sqlserver", "port":1433,"user":"dba_monitor","password":"MonitorP@ss123!"},
-#     {"name":"prod",   "host":"prod-sql01","port":1433,"user":"dba_monitor","password":"..."},
-#     {"name":"dev",    "host":"dev-sql01", "port":1433,"user":"dba_monitor","password":"..."}
-#   ]
-#
-# Single quotes wrap the whole thing in docker-compose; use a secrets manager in prod.
-############################################################################################################
-
-
-############################################################################################################
-# How a tool changes — before and after
-#
-# BEFORE (db.ts global pool):
-#
-#   server.tool("get_server_info", "...", {}, async () => {
-#     const { rows } = await query("SELECT @@VERSION ...");
-#     return ok(rows);
-#   });
-#
-# AFTER (connectionManager, instance_name param):
-#
-#   server.tool("get_server_info", "...",
-#     {
-#       instance_name: z.string().optional().default("default")
-#         .describe("Named SQL Server instance to query. Call list_instances to see available names.")
-#     },
-#     async ({ instance_name }) => {
-#       const { rows } = await queryInstance(instance_name, "SELECT @@VERSION ...");
-#       return ok(rows);
-#     }
-#   );
-#
-# The SQL inside every tool is unchanged — only the connection routing changes.
-############################################################################################################
-
-
-############################################################################################################
-# The new list_instances tool — Copilot's entry point
-#
-#   server.tool(
-#     "list_instances",
-#     "List all configured SQL Server instances available for querying. " +
-#     "Call this first if the user does not specify which instance they want.",
-#     {},
-#     async () => ok(listInstances())
-#   );
-#
-# When you ask Copilot "check all my SQL Servers", it calls list_instances first,
-# then fans out get_server_info / get_wait_stats across every returned name.
-############################################################################################################
-
-
-############################################################################################################
-# docker-compose.yml — add the INSTANCES env var to sql-mcp-server
-############################################################################################################
-
-code docker-compose.yml
-
-# Update the sql-mcp-server environment block:
-#
-#   sql-mcp-server:
-#     build: ./sql-mcp-server
-#     environment:
-#       - INSTANCES=[
-#           {"name":"SqlServer1","host":"sqlserver","port":1433,
-#            "user":"dba_monitor","password":"MonitorP@ss123!"},
-#           {"name":"SqlServer2","host":"sqlserver2","port":1433,
-#            "user":"dba_monitor","password":"MonitorP@ss123!"}
-#         ]
-#     ports:
-#       - "3001:3000"
-#
-# SQL_SERVER / SQL_USER / SQL_PASSWORD are no longer needed once INSTANCES is set,
-# but they still work as the "default" fallback if INSTANCES is absent.
-
-
-############################################################################################################
-# mcp.json — unchanged
-# One entry, one server, all instances accessible by name
-############################################################################################################
-
-code "$HOME/Library/Application Support/Code/User/mcp.json"
-
-# {
-#   "servers": {
-#     "products-db": { "type": "http", "url": "http://localhost:5001/mcp" },
-#     "sql-dba":     { "type": "http", "url": "http://localhost:3001/mcp" }
-#   }
-# }
-
-
-############################################################################################################
-# Ask Copilot to cross-instance queries once deployed:
-#
-#   What SQL Server instances do you have access to?
-#   → calls list_instances
-#
-#   Compare wait stats on SqlServer1 vs prod. Which one has more CPU pressure?
-#   → calls get_wait_stats(instance_name="SqlServer1")
-#   → calls get_wait_stats(instance_name="prod")
-#   → synthesizes comparison
-#
-#   Check all instances for blocking right now.
-#   → fans out get_blocking_chains across every instance in parallel
-############################################################################################################
-
-
-############################################################################################################
-# Migration path — 28 tools, same SQL, minimal churn
-############################################################################################################
-
-# 1. Add connectionManager.ts (done — see src/connectionManager.ts)
-# 2. Add list_instances tool to tools.ts (5 lines)
-# 3. For each of the 28 tools:
-#      a. Add instance_name param (z.string().optional().default("default"))
-#      b. Replace:  await query(sql, ...)
-#         With:     await queryInstance(instance_name, sql, ...)
-#    The SQL strings are untouched.
-# 4. Update docker-compose INSTANCES env var
-# 5. Rebuild: docker compose build sql-mcp-server && docker compose up -d sql-mcp-server
-############################################################################################################
-
-
-############################################################################################################
-# fan_out_query — fleet-wide parallel execution
-#
-#    SEQUENTIAL CHAINING (agent loop):               FAN-OUT (single tool call):
-#
-#    list_instances()                                fan_out_query({
-#      → ["SqlServer1", "SqlServer2"]                  query: "SELECT ...",
-#                                                      instances: ["SqlServer1","SqlServer2"]
-#    get_wait_stats("SqlServer1") ──► sqlserver        })
-#    get_wait_stats("SqlServer2") → sqlserver2             ├─► sqlserver    ─┐
-#                                                           └─► sqlserver2  ─┴─ parallel
-#    Better for: interactive diagnosis               Better for: fleet-wide snapshot
-#    (each result shapes the next question)          (one round-trip, N servers)
-############################################################################################################
-
-
-############################################################################################################
-# fan_out_query tool — walk through the implementation
+# Step 5 — The instance_name parameter in every tool
+# instanceParam is a shared spread constant — one line adds it to all 30 tools
 ############################################################################################################
 
 code sql-mcp-server/src/tools.ts
 
-# Look for the fan_out_query tool (~50 lines after list_instances):
+# Look for:
+#   const instanceParam = { instance_name: z.string().optional().default("default")... }
 #
-#   server.tool("fan_out_query", ...,
-#     { query: z.string(), instances: z.array(z.string()).optional() },
-#     async ({ query: sql, instances: subset }) => {
-#       const targets = subset?.length ? listInstances().filter(...) : listInstances();
-#       const settled = await Promise.allSettled(
-#         targets.map(async (inst) => {
-#           const { rows, truncated } = await queryInstance(inst.name, sql, 200);
-#           return { instance: inst.name, rows, truncated };
-#         })
-#       );
-#       // settled has per-instance results even if one instance is down
-#       ...
-#     }
-#   );
+# Every tool schema is:
+#   { ...instanceParam, <other params> }
+#
+# Every async callback destructures it:
+#   async ({ instance_name, <other params> }) => {
+#     const { rows } = await queryInstance(instance_name, sql);
 
 
 ############################################################################################################
-# Test fan_out_query directly via MCP protocol
+# Step 6 — Copilot scenarios
+#
+#   SCENARIO A: Target a specific instance
+#
+#     "Get server info for SqlServer2"
+#
+#   Tools invoked: list_instances (optional), get_server_info(instance_name:"SqlServer2")
+#   Watch for: server_name = "sqlserver2", different uptime from SqlServer1
+#
 ############################################################################################################
 
-SESSION=$(curl -si -X POST http://localhost:3001/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
-        "protocolVersion":"2025-06-18","capabilities":{},
-        "clientInfo":{"name":"demo","version":"1"}}}' \
-  | grep -i "^mcp-session-id:" | awk '{print $2}' | tr -d '\r\n')
-
-echo "Session: $SESSION"
-
-curl -s -X POST http://localhost:3001/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -H "mcp-session-id: $SESSION" \
-  -d '{
-    "jsonrpc":"2.0","id":2,"method":"tools/call",
-    "params":{
-      "name":"fan_out_query",
-      "arguments":{
-        "query":"SELECT @@SERVERNAME AS server_name, @@VERSION AS version"
-      }
-    }
-  }'
-
-# Both instances return their @@SERVERNAME in one call
+# SCENARIO B: Compare two instances
+#
+#   "Check wait stats on both SQL Server instances and tell me if there are any concerns"
+#
+#   Tools invoked:
+#     1. list_instances() → ["SqlServer1", "SqlServer2"]
+#     2. get_wait_stats(instance_name:"SqlServer1")
+#     3. get_wait_stats(instance_name:"SqlServer2")
+#   Copilot will compare both and synthesize a diagnosis.
 
 
 ############################################################################################################
-# Copilot scenario — fleet-wide wait stats in one question
-#
-#   "Check for top waits across all SQL servers and summarize any concerns"
-#
-#   Copilot will either:
-#   A. Call fan_out_query with a wait stats SELECT — one parallel round-trip
-#   B. Call get_wait_stats(instance_name:"SqlServer1") then get_wait_stats(instance_name:"SqlServer2")
-#
-#   Either approach works. The agent chooses based on whether it wants
-#   to use the pre-built tool logic or write the SQL itself.
+# Step 7 — Under the hood: what happens on the first call to SqlServer2
+# Before:  pools Map = { "SqlServer1": <connected pool> }
+# Request: get_server_info(instance_name: "SqlServer2")
+#  → getPool("SqlServer2")
+#  → pools.get("SqlServer2") is undefined
+#  → new ConnectionPool({ host: "sqlserver2", port: 1433, user: "sa", ... }).connect()
+#  → TCP connect → TDS handshake → SQL login → pool ready
+#  → pools.set("SqlServer2", pool)
+#  → pool.request().query(sql)
+# After: pools Map = { "SqlServer1": <pool>, "SqlServer2": <pool> }
 ############################################################################################################
 
+docker logs sql-mcp-dba | grep "Connected to instance"
+
+# Shows lazy connection log lines as each instance is first queried
+
 
 ############################################################################################################
-# Fault tolerance demo — what happens when one instance is unreachable
+# PRODUCTION PATTERN — adding a third instance (zero code changes)
 #
-#   fan_out_query uses Promise.allSettled, not Promise.all.
-#   One instance being down returns an { error: "..." } for that key
-#   while the others return { rows: [...] } normally.
+#  1. Add an entry to the INSTANCES array in .env:
+#       INSTANCES=[
+#         {"name":"SqlServer1", "host":"sqlserver",       ...},
+#         {"name":"SqlServer2", "host":"sqlserver2",      ...},
+#         {"name":"prod",     "host":"prod-sql01.corp",  "port":1433, "user":"dba_monitor", "password":"..."}
+#       ]
 #
-#   Stop sqlserver2 and run fan_out_query to see partial results:
-############################################################################################################
-
-docker compose stop sqlserver2
-
-# Then ask Copilot: "Run a fan-out query to get @@SERVERNAME from all instances"
-# Expected: default returns rows, sqlserver2 returns { error: "connect ECONNREFUSED..." }
-
-docker compose start sqlserver2
+#  2. Restart the container:
+#       docker compose restart sql-mcp-server
+#
+#  3. Copilot immediately sees the new instance:
+#       "List instances"  →  ["SqlServer1", "SqlServer2", "prod"]
+#
+#  No mcp.json changes. No Dockerfile changes. No TypeScript changes.
 ############################################################################################################

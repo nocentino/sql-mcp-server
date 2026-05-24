@@ -1,136 +1,168 @@
 #!/bin/bash
 ############################################################################################################
-# 4. One MCP Server, Many SQL Server Instances
-#    The connectionManager.ts architecture — lazy pools, per-instance routing, fleet-wide operations.
+# 3 (DBA). Copilot as Your DBA — Live Diagnostics Against SQL Server 2025
+#    Each scenario starts with a natural-language question in Copilot Chat
+#    and ends with an AI-generated diagnosis backed by real DMV data.
+#    MCP server used: sql-dba (http://127.0.0.1:3001/mcp)
+############################################################################################################
+
+
+############################################################################################################
+# SCENARIO 1 — First Look: What server am I connected to?
+############################################################################################################
+
+# In Copilot Chat, ask:
 #
-#    ARCHITECTURE:
+#   Tell me about this SQL Server instance. What version is it, how long has it
+#   been running, and are there any obvious configuration concerns?
 #
-#      mcp.json              sql-mcp-server (port 3001)          SQL Servers
-#      ────────────────      ──────────────────────────────       ───────────────────
-#                            connectionManager.ts
-#      sql-dba               ┌────────────┬────────────┐
-#       :3001/mcp ─────────► │ "SqlServer1" │ "SqlServer2"│
-#                            │    pool    │    pool    │
-#                            │  (max 5)   │  (max 5)   │
-#                            └─────┬──────┴──────┬─────┘
-#                                  │             │
-#                                  ▼             ▼
-#                            sqlserver:1433  sqlserver2:1433
+# Tools invoked: get_server_info
+# Watch for: MAXDOP=0, CTFP=5, max server memory uncapped, optimize for ad hoc workloads OFF
+############################################################################################################
+
+
+############################################################################################################
+# SCENARIO 2 — Blocking Investigation
+# Inject a three-session blocking chain: SQLCMD → SQLCMD → DAB REST API
+############################################################################################################
+
+# Terminal 1 — Connection A: holds an exclusive lock for 5 minutes, then rolls back
+docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+    -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
+    -d ProductsDB \
+    -Q "BEGIN TRANSACTION;
+        UPDATE dbo.Products SET UnitPrice = UnitPrice * 1.01 WHERE Category = 'Electronics';
+        SELECT @@SPID AS blocker_spid;
+        WAITFOR DELAY '00:05:00';
+        ROLLBACK TRANSACTION;"
+
+
+############################################################################################################
+# Terminal 2 — Connection B: raw SQL SELECT blocked by A's X lock
+############################################################################################################
+
+docker exec -it sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+    -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
+    -d ProductsDB \
+    -Q "SELECT ProductID, ProductName, UnitPrice FROM dbo.Products WHERE Category = 'Electronics';"
+
+
+############################################################################################################
+# Terminal 3 — Connection C: REST API call blocked by the same X lock
+# DAB translates this HTTP GET into a SQL SELECT, which queues behind A.
+############################################################################################################
+
+curl -s "http://localhost:5001/api/Products?\$filter=Category%20eq%20'Electronics'" | jq .
+
+
+############################################################################################################
+# Now ask Copilot:
 #
-#    One MCP entry in mcp.json. Both instances reachable via instance_name parameter.
-#    Zero code changes to add a new instance — just edit .env.
-############################################################################################################
-
-
-############################################################################################################
-# Step 1 — Confirm both SQL Server instances are running
-############################################################################################################
-
-docker compose ps
-
-# Both sqlserver (port 1433) and sqlserver2 (port 1434) should be healthy.
-# sqlserver2 was added to docker-compose.yml — no separate docker run needed.
-
-
-############################################################################################################
-# Step 2 — Inspect the instance configuration
-# INSTANCES is a JSON array in .env, loaded via env_file in docker-compose.yml
-############################################################################################################
-
-grep -A 20 'INSTANCES=' .env
-
-
-############################################################################################################
-# Step 3 — Confirm sql-mcp-server registered both instances at startup
-############################################################################################################
-
-docker logs sql-mcp-dba | grep "Registered instances"
-
-# Expected: [db] Registered instances: SqlServer1, SqlServer2
-
-
-############################################################################################################
-# Step 4 — Walk through connectionManager.ts
-# lazy pool creation, per-instance routing, error recovery
-############################################################################################################
-
-code sql-mcp-server/src/connectionManager.ts
-
-
-############################################################################################################
-# Step 5 — The instance_name parameter in every tool
-# instanceParam is a shared spread constant — one line adds it to all 30 tools
-############################################################################################################
-
-code sql-mcp-server/src/tools.ts
-
-# Look for:
-#   const instanceParam = { instance_name: z.string().optional().default("default")... }
+#   Are there any blocking sessions right now? Who is blocking whom, how long
+#   has the block been in place, and what SQL is running?
 #
-# Every tool schema is:
-#   { ...instanceParam, <other params> }
-#
-# Every async callback destructures it:
-#   async ({ instance_name, <other params> }) => {
-#     const { rows } = await queryInstance(instance_name, sql);
+# Tools invoked: get_blocking_chains, get_active_sessions
+# Watch for: three-session chain — head blocker (UPDATE + WAITFOR), SQLCMD victim,
+#            and dab_oss_2.0.1 victim all waiting on LCK_M_S
+############################################################################################################
 
 
 ############################################################################################################
-# Step 6 — Copilot scenarios
-#
-#   SCENARIO A: Target a specific instance
-#
-#     "Get server info for SqlServer2"
-#
-#   Tools invoked: list_instances (optional), get_server_info(instance_name:"SqlServer2")
-#   Watch for: server_name = "sqlserver2", different uptime from SqlServer1
-#
+# Clean up — kill the head blocker (SPID reported by connection A above)
 ############################################################################################################
 
-# SCENARIO B: Compare two instances
-#
-#   "Check wait stats on both SQL Server instances and tell me if there are any concerns"
-#
-#   Tools invoked:
-#     1. list_instances() → ["SqlServer1", "SqlServer2"]
-#     2. get_wait_stats(instance_name:"SqlServer1")
-#     3. get_wait_stats(instance_name:"SqlServer2")
-#   Copilot will compare both and synthesize a diagnosis.
+docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+    -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
+    -Q "KILL <spid_from_blocking_chain>"
 
 
 ############################################################################################################
-# Step 7 — Under the hood: what happens on the first call to SqlServer2
-# Before:  pools Map = { "SqlServer1": <connected pool> }
-# Request: get_server_info(instance_name: "SqlServer2")
-#  → getPool("SqlServer2")
-#  → pools.get("SqlServer2") is undefined
-#  → new ConnectionPool({ host: "sqlserver2", port: 1433, user: "sa", ... }).connect()
-#  → TCP connect → TDS handshake → SQL login → pool ready
-#  → pools.set("SqlServer2", pool)
-#  → pool.request().query(sql)
-# After: pools Map = { "SqlServer1": <pool>, "SqlServer2": <pool> }
+# SCENARIO 3 — Wait Stats and Performance Fingerprinting
 ############################################################################################################
 
-docker logs sql-mcp-dba | grep "Connected to instance"
-
-# Shows lazy connection log lines as each instance is first queried
+# Ask Copilot:
+#
+#   Look at the wait statistics and tell me where this SQL Server is spending
+#   its time. Is there any I/O pressure, CPU pressure, or memory contention?
+#   Give me a ranked summary and tell me what each top wait type means.
+#
+# Tools invoked: get_wait_stats, get_file_io_stats, get_cpu_history, get_memory_usage
+############################################################################################################
 
 
 ############################################################################################################
-# PRODUCTION PATTERN — adding a third instance (zero code changes)
+# Generate I/O and CPU load so the wait stats show something interesting
+############################################################################################################
+
+docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+    -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
+    -d ProductsDB \
+    -Q "DECLARE @i INT = 0;
+        WHILE @i < 50
+        BEGIN
+            SELECT p.ProductName, p.UnitPrice, od.Quantity, p.Category
+            FROM   dbo.Products p
+            JOIN   dbo.OrderDetails od ON od.ProductID = p.ProductID
+            JOIN   dbo.Orders o        ON o.OrderID    = od.OrderID
+            WHERE  p.UnitPrice > RAND() * 100;
+            SET @i = @i + 1;
+        END"
+
+
+############################################################################################################
+# After the workload finishes, ask Copilot:
 #
-#  1. Add an entry to the INSTANCES array in .env:
-#       INSTANCES=[
-#         {"name":"SqlServer1", "host":"sqlserver",       ...},
-#         {"name":"SqlServer2", "host":"sqlserver2",      ...},
-#         {"name":"prod",     "host":"prod-sql01.corp",  "port":1433, "user":"dba_monitor", "password":"..."}
-#       ]
+#   What are the top 5 most expensive queries since the server restarted?
+#   Rank by CPU. Show me the query text and tell me if any look like
+#   parameter sniffing candidates.
 #
-#  2. Restart the container:
-#       docker compose restart sql-mcp-server
+# Tools invoked: get_top_queries, get_plan_cache_pollution
+############################################################################################################
+
+
+############################################################################################################
+# SCENARIO 4 — Missing Index Recommendations
+############################################################################################################
+
+# Generate table scans to populate the missing index DMVs
+docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+    -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
+    -d ProductsDB \
+    -Q "SELECT p.ProductName, p.UnitPrice, p.UnitsInStock
+        FROM   dbo.Products p
+        WHERE  p.UnitsInStock < 30
+        AND    p.UnitPrice > 50
+        ORDER  BY p.UnitsInStock ASC;
+
+        SELECT p.Category, COUNT(p.ProductID) AS ProductCount, AVG(p.UnitPrice) AS AvgPrice
+        FROM   dbo.Products p
+        WHERE  p.Discontinued = 0
+        GROUP  BY p.Category;"
+
+
+############################################################################################################
+# Ask Copilot:
 #
-#  3. Copilot immediately sees the new instance:
-#       "List instances"  →  ["SqlServer1", "SqlServer2", "prod"]
+#   Are there any missing index recommendations? Show me the indexes with the
+#   highest impact score, what columns they cover, and give me the CREATE INDEX
+#   statements I can run.
 #
-#  No mcp.json changes. No Dockerfile changes. No TypeScript changes.
+# Tools invoked: get_missing_indexes, get_index_usage_stats
+# Watch for: impact_score, ready-to-use CREATE INDEX in suggested_create_index
+############################################################################################################
+
+
+############################################################################################################
+# BONUS — Full incident report
+############################################################################################################
+
+# Ask Copilot:
+#
+#   Pull a full health snapshot of this SQL Server: server info, databases,
+#   wait stats, top queries by CPU, any blocking, and missing indexes.
+#   Write it up as an incident report I could hand to a DBA.
+#
+# Tools invoked: get_server_info, get_database_info, get_wait_stats,
+#                get_top_queries, get_blocking_chains, get_missing_indexes
+# Watch for: Copilot chaining multiple tool calls in a single agent turn
 ############################################################################################################

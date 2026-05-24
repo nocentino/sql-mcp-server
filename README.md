@@ -418,7 +418,7 @@ docker compose down -v    # stop and delete all data
 │   │   └── safety.ts            # Query allowlist (SELECT / WITH / DECLARE only)
 │   ├── Dockerfile
 │   └── package.json
-├── demos/                       # walkthrough demo scripts (1–5)
+├── demos/                       # walkthrough demo scripts (1–6)
 ├── scripts/
 │   ├── init-sqlserver1.sql      # ProductsDB schema, sample data, dba_monitor + dab_app logins
 ├── tests/
