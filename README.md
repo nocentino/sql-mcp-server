@@ -1,13 +1,15 @@
 # SQL Server MCP Demo
 
-AI agents are only as useful as the tools you give them. Out of the box, a coding assistant can write T-SQL — but it can't *see* your running SQL Server: it doesn't know which sessions are blocked, what the wait stats look like, or which indexes are missing. The Model Context Protocol (MCP) closes that gap by letting you expose your own servers as callable tools that agents can invoke directly, with real data, inside a controlled boundary.
+I've been thinking a lot lately about what it actually takes to make an AI agent useful for database work. Writing T-SQL is the easy part — a coding assistant can do that out of the box. The hard part is giving it *visibility* into a running SQL Server: which sessions are blocked right now, where the wait stats are pointing, which indexes the optimizer is begging for. Without that, the agent is just guessing.
 
-This repo demonstrates two complementary approaches to wiring SQL Server into an AI agent using MCP on SQL Server 2025:
+I built this demo to show two complementary ways to wire SQL Server into a GitHub Copilot agent using MCP on SQL Server 2025. Both run in Docker Compose with no local installs beyond Docker Desktop.
 
-- **Data API Builder (DAB)** — zero-code MCP server. Point it at a database and it exposes REST, GraphQL, and MCP endpoints automatically. Best for application data where you want natural-language CRUD over a known schema.
-- **Custom SQL MCP Server** — a TypeScript MCP server with 30 hand-crafted tools that query SQL Server DMVs directly. Built for DBA-style diagnostics: blocking chains, wait stats, missing indexes, query plan cache, memory pressure, and more. Supports multiple SQL Server instances from a single container — add a new server to a JSON array in `.env` and the agent can reach it immediately.
+- **Data API Builder (DAB)** — zero-code MCP server. Point it at a database and it exposes REST, GraphQL, and MCP endpoints automatically. It's the right tool when you want natural-language CRUD over a known application schema.
+- **Custom SQL MCP Server** — a TypeScript MCP server with 30 hand-crafted tools that query SQL Server DMVs directly. Built for DBA-style diagnostics: blocking chains, wait stats, missing indexes, query plan cache, memory pressure, and more. A single container manages connections to multiple SQL Server instances. Add a new server to a JSON array in `.env`, restart the container, and the agent can reach it immediately.
 
 The agent never touches the database directly. It calls your tool server. Your tool server runs the SQL. You stay in control.
+
+Let's go.
 
 ## Quick Start
 
@@ -70,7 +72,7 @@ curl http://localhost:5001/health   # DAB
 
 ### VS Code / GitHub Copilot
 
-The global MCP config lives at `~/Library/Application Support/Code/User/mcp.json`:
+Once the containers are running, register both servers in your VS Code MCP config at `~/Library/Application Support/Code/User/mcp.json`:
 
 ```json
 {
@@ -87,9 +89,9 @@ The global MCP config lives at `~/Library/Application Support/Code/User/mcp.json
 }
 ```
 
-## Agentic Interaction Examples
+## What This Looks Like in Practice
 
-The real power of this setup is **multi-step agentic reasoning** — the agent calls several tools in sequence, cross-references results, and synthesises a recommendation without you writing a single query.
+This is where it gets interesting. The agent doesn't just run a single query — it chains tool calls, cross-references the results, and synthesizes a diagnosis, all from one natural-language question. Here are some examples straight from the demo scripts.
 
 ---
 
@@ -293,7 +295,7 @@ Agent: "## SQL Server Health Report — SqlServer1
 
 ## Multi-Instance Architecture
 
-A single `sql-mcp-server` container manages connection pools to **multiple SQL Server instances**. Instances are registered at startup via the `INSTANCES` environment variable in `.env`.
+One of the things I'm most happy with in this design is how the multi-instance support works. A single `sql-mcp-server` container manages connection pools to as many SQL Server instances as you need. Instances are registered at startup via the `INSTANCES` environment variable in `.env`.
 
 ### Instance configuration (`.env`)
 
@@ -304,7 +306,7 @@ INSTANCES=[
 ]
 ```
 
-Add or remove instances by editing this file and restarting the container — no code changes required.
+Add or remove instances by editing this file and restarting the container. No code changes required.
 
 ### Connection flow
 
@@ -330,7 +332,7 @@ Copilot → MCP tool call (instance_name: "sqlserver2")
 
 ### Concurrency model
 
-Each instance gets its own `ConnectionPool` with `{ max: 5, min: 0, idleTimeoutMillis: 30s }`:
+Each instance gets its own `ConnectionPool`. Here's how the settings are tuned:
 
 | Setting | Value | Effect |
 |---|---|---|
@@ -343,7 +345,7 @@ Each instance gets its own `ConnectionPool` with `{ max: 5, min: 0, idleTimeoutM
 
 ### Fan-out across the fleet
 
-The `fan_out_query` tool runs the same T-SQL on all instances (or a named subset) in parallel using `Promise.allSettled`. One instance being down does not cancel queries on others.
+The `fan_out_query` tool runs the same T-SQL across all instances (or a named subset) in parallel using `Promise.allSettled`. One instance being down doesn't cancel queries on the others.
 
 ```
 Copilot: "check wait stats across all SQL servers"
@@ -364,9 +366,11 @@ Copilot: "check wait stats across all SQL servers"
 3. Copilot synthesizes across both result sets
 ```
 
-Sequential chaining (`get_wait_stats(instance_name: "X")` per instance) is better for interactive investigation. `fan_out_query` is better for fleet-wide comparison in one shot.
+Sequential chaining (`get_wait_stats(instance_name: "X")` per instance) is better for interactive investigation where each result shapes the next question. `fan_out_query` is better when you want a fleet-wide snapshot in a single round-trip.
 
 ## REST and GraphQL (DAB)
+
+DAB also exposes a standard REST and GraphQL endpoint if you want to hit the API directly outside of the agent.
 
 ```bash
 # Products list
@@ -379,6 +383,8 @@ curl -X POST http://localhost:5001/graphql \
 ```
 
 ## Direct SQL access
+
+If you want to poke at the database directly during testing:
 
 ```bash
 docker compose exec sqlserver /opt/mssql-tools18/bin/sqlcmd \
@@ -421,7 +427,9 @@ docker compose down -v    # stop and delete all data
     └── MCP-CLIENT-EXAMPLES.md   # mcp.json config for VS Code, Claude Desktop, etc.
 ```
 
-## SQL MCP server tools (30 tools)
+## SQL MCP Server Tools
+
+Here's the full list of tools available in the `sql-dba` server. Call `list_instances` first if you haven't specified which server you want to target.
 
 ### Instance Management
 | Tool | Description |
@@ -494,13 +502,19 @@ docker compose down -v    # stop and delete all data
 | Orders | dbo.Orders | CRUD |
 | OrderDetails | dbo.OrderDetails | CRUD |
 
+## Wrapping Up
+
+Clone the repo, spin up the containers, and ask Copilot to pull a health snapshot of your SQL Server. The 30 DMV-backed tools give it enough visibility to diagnose blocking, identify expensive queries, spot missing indexes, and flag configuration concerns — all from a single natural-language question. Get out in your lab and start testing.
+
+The code is at [github.com/nocentino/sql-mcp-server](https://github.com/nocentino/sql-mcp-server). Let me know how it works in your environment.
+
 ## Notes
 
-- The `dba_monitor` login is created by `init-sqlserver1.sql` with `VIEW SERVER STATE` only — no views or stored procedures on the monitored server. All T-SQL lives in the MCP server's tool definitions.
-- To add a new SQL Server instance: add an entry to the `INSTANCES` array in `.env` and restart `sql-mcp-server`. No code changes needed.
-- Default SA password is `S0methingS@Str0ng!` — change it in `.env` before use.
-- To regenerate `dab-config.json` after schema changes: `./scripts/generate-dab-config.sh`
+- **`dba_monitor` permissions** — created with `VIEW SERVER STATE` only. No stored procedures or views on the monitored server. All T-SQL lives inside the MCP server's tool definitions.
+- **Adding a new instance** — add an entry to the `INSTANCES` array in `.env` and restart `sql-mcp-server`. No code changes needed.
+- **SA password** — the default is `S0methingS@Str0ng!`. Change it in `.env` before use.
+- **Regenerating `dab-config.json`** — if you change the schema, run `./scripts/generate-dab-config.sh`.
 
 ## Acknowledgements
 
-Several DMV queries in `sql-mcp-server/src/tools.ts` are derived from the **[Brent Ozar First Responder Kit](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit)** — specifically the ignorable wait type list in `get_wait_stats` and the blocker SQL lookup via `dm_exec_connections.most_recent_sql_handle` in `get_blocking_chains`. The First Responder Kit is released under the **MIT License**.
+A couple of the DMV queries in `sql-mcp-server/src/tools.ts` borrow from the **[Brent Ozar First Responder Kit](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit)** — specifically the ignorable wait type list in `get_wait_stats` and the blocker SQL lookup using `dm_exec_connections.most_recent_sql_handle` in `get_blocking_chains`. The First Responder Kit is released under the **MIT License**. If you're doing serious SQL Server performance work and you're not already using it, go check it out.
