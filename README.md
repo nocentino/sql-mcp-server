@@ -1,6 +1,6 @@
 # SQL Server MCP Demo
 
-I've been thinking a lot lately about what it actually takes to make an AI agent useful for database work. Writing T-SQL is the easy part — a coding assistant can do that out of the box. The hard part is giving it *visibility* into a running SQL Server: which sessions are blocked right now, where the wait stats are pointing, which indexes the optimizer is begging for. Without that, the agent is just guessing.
+I've been thinking a lot lately about what it actually takes to make an AI agent useful for database work. Writing T-SQL is the easy part a coding assistant can do that out of the box. The hard part is giving it *visibility* into a running SQL Server: which sessions are blocked right now, where the wait stats are pointing, which indexes the optimizer is begging for. Without that, the agent is just guessing.
 
 I built this demo to show two complementary ways to wire SQL Server into a GitHub Copilot agent using MCP on SQL Server 2025. Both run in Docker Compose with no local installs beyond Docker Desktop.
 
@@ -27,7 +27,7 @@ docker compose ps
 curl http://localhost:3001/health   # SQL MCP server
 curl http://localhost:5001/health   # DAB
 
-# 4. Wire up VS Code — add to ~/Library/Application Support/Code/User/mcp.json
+# 4. Wire up VS Code add to ~/Library/Application Support/Code/User/mcp.json
 {
   "servers": {
     "sql-dba":     { "type": "http", "url": "http://localhost:3001/mcp" },
@@ -36,7 +36,7 @@ curl http://localhost:5001/health   # DAB
 }
 
 # 5. Open Copilot Chat in agent mode and ask:
-#    "Tell me about this SQL Server — version, uptime, and any config concerns."
+#    "Tell me about this SQL Server version, uptime, and any config concerns."
 ```
 
 ## Architecture
@@ -91,7 +91,7 @@ Once the containers are running, register both servers in your VS Code MCP confi
 
 ## What This Looks Like in Practice
 
-This is where it gets interesting. The agent doesn't just run a single query — it chains tool calls, cross-references the results, and synthesizes a diagnosis, all from one natural-language question. Here are some examples straight from the demo scripts.
+This is where it gets interesting. The agent doesn't just run a single query it chains tool calls, cross-references the results, and synthesizes a diagnosis, all from one natural-language question. Here are some examples straight from the demo scripts.
 
 ---
 
@@ -410,7 +410,7 @@ docker compose down -v    # stop and delete all data
 │   ├── src/
 │   │   ├── index.ts             # Streamable HTTP transport, MCP session management
 │   │   ├── tools.ts             # 30 tools (list_instances, fan_out_query + 28 DBA tools)
-│   │   ├── connectionManager.ts # Multi-instance pool manager — lazy, per-instance, self-healing
+│   │   ├── connectionManager.ts # Multi-instance pool manager lazy, per-instance, self-healing
 │   │   └── safety.ts            # Query allowlist (SELECT / WITH / DECLARE only)
 │   ├── Dockerfile
 │   └── package.json
@@ -504,7 +504,7 @@ Here's the full list of tools available in the `sql-dba` server. Call `list_inst
 
 ## Wrapping Up
 
-Clone the repo, spin up the containers, and ask Copilot to pull a health snapshot of your SQL Server. The 30 DMV-backed tools give it enough visibility to diagnose blocking, identify expensive queries, spot missing indexes, and flag configuration concerns — all from a single natural-language question. Get out in your lab and start testing.
+Clone the repo, spin up the containers, and ask Copilot to pull a health snapshot of your SQL Server. The 30 DMV-backed tools give it enough visibility to diagnose blocking, identify expensive queries, spot missing indexes, and flag configuration concerns all from a single natural-language question. Get out in your lab and start testing.
 
 The code is at [github.com/nocentino/sql-mcp-server](https://github.com/nocentino/sql-mcp-server). Let me know how it works in your environment.
 
@@ -517,4 +517,4 @@ The code is at [github.com/nocentino/sql-mcp-server](https://github.com/nocentin
 
 ## Acknowledgements
 
-Several DMV queries in `sql-mcp-server/src/tools.ts` are derived from the **[Brent Ozar First Responder Kit](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit)** — specifically the ignorable wait type list in `get_wait_stats` and the blocker SQL lookup via `dm_exec_connections.most_recent_sql_handle` in `get_blocking_chains`. The First Responder Kit is released under the **MIT License**.
+Several DMV queries in `sql-mcp-server/src/tools.ts` are derived from the **[Brent Ozar First Responder Kit](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit)** specifically the ignorable wait type list in `get_wait_stats` and the blocker SQL lookup via `dm_exec_connections.most_recent_sql_handle` in `get_blocking_chains`. The First Responder Kit is released under the **MIT License**.
