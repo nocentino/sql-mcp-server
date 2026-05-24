@@ -517,4 +517,4 @@ The code is at [github.com/nocentino/sql-mcp-server](https://github.com/nocentin
 
 ## Acknowledgements
 
-A couple of the DMV queries in `sql-mcp-server/src/tools.ts` borrow from the **[Brent Ozar First Responder Kit](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit)** — specifically the ignorable wait type list in `get_wait_stats` and the blocker SQL lookup using `dm_exec_connections.most_recent_sql_handle` in `get_blocking_chains`. The First Responder Kit is released under the **MIT License**. If you're doing serious SQL Server performance work and you're not already using it, go check it out.
+Several DMV queries in `sql-mcp-server/src/tools.ts` are derived from the **[Brent Ozar First Responder Kit](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit)** — specifically the ignorable wait type list in `get_wait_stats` and the blocker SQL lookup via `dm_exec_connections.most_recent_sql_handle` in `get_blocking_chains`. The First Responder Kit is released under the **MIT License**.
