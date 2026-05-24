@@ -1,9 +1,41 @@
 # SQL Server MCP Demo
 
-A Docker Compose environment that demonstrates two complementary MCP server patterns on top of SQL Server 2025:
+AI agents are only as useful as the tools you give them. Out of the box, a coding assistant can write T-SQL — but it can't *see* your running SQL Server: it doesn't know which sessions are blocked, what the wait stats look like, or which indexes are missing. The Model Context Protocol (MCP) closes that gap by letting you expose your own servers as callable tools that agents can invoke directly, with real data, inside a controlled boundary.
 
-- **Data API Builder (DAB)** — exposes the ProductsDB application database via REST, GraphQL, and MCP. Ideal for CRUD-style agent interactions with a known schema.
-- **SQL MCP Server** — a custom TypeScript server that gives agents full read-only T-SQL access to SQL Server DMVs for DBA-style monitoring. Supports multiple SQL Server instances from a single running container.
+This repo demonstrates two complementary approaches to wiring SQL Server into an AI agent using MCP on SQL Server 2025:
+
+- **Data API Builder (DAB)** — zero-code MCP server. Point it at a database and it exposes REST, GraphQL, and MCP endpoints automatically. Best for application data where you want natural-language CRUD over a known schema.
+- **Custom SQL MCP Server** — a TypeScript MCP server with 30 hand-crafted tools that query SQL Server DMVs directly. Built for DBA-style diagnostics: blocking chains, wait stats, missing indexes, query plan cache, memory pressure, and more. Supports multiple SQL Server instances from a single container — add a new server to a JSON array in `.env` and the agent can reach it immediately.
+
+The agent never touches the database directly. It calls your tool server. Your tool server runs the SQL. You stay in control.
+
+## Quick Start
+
+```bash
+# 1. Clone and copy the env file
+git clone https://github.com/nocentino/sql-mcp-server.git
+cd sql-mcp-server
+cp .env.example .env          # set your passwords in .env
+
+# 2. Start everything
+docker compose up --build -d  # first run: ~2-3 min to pull + seed the DB
+
+# 3. Verify
+docker compose ps
+curl http://localhost:3001/health   # SQL MCP server
+curl http://localhost:5001/health   # DAB
+
+# 4. Wire up VS Code — add to ~/Library/Application Support/Code/User/mcp.json
+{
+  "servers": {
+    "sql-dba":     { "type": "http", "url": "http://localhost:3001/mcp" },
+    "products-db": { "type": "http", "url": "http://localhost:5001/mcp" }
+  }
+}
+
+# 5. Open Copilot Chat in agent mode and ask:
+#    "Tell me about this SQL Server — version, uptime, and any config concerns."
+```
 
 ## Architecture
 
@@ -33,24 +65,6 @@ A Docker Compose environment that demonstrates two complementary MCP server patt
 | `sqlserver2` | SQL Server 2025 — second instance for testing | 1434 |
 | `dab-mcp` | DAB — ProductsDB CRUD via MCP | 5001 |
 | `sql-mcp-server` | Custom MCP — DBA monitoring (multi-instance) | 3001 |
-
-## Prerequisites
-
-[Docker Desktop](https://www.docker.com/products/docker-desktop/) — no other local tools required.
-
-## Start
-
-```bash
-docker compose up --build -d
-```
-
-First run takes 2–3 minutes to pull images and initialize the database. Check readiness:
-
-```bash
-docker compose ps
-curl http://localhost:5001/health          # DAB
-curl http://localhost:3001/health          # SQL MCP server
-```
 
 ## Connect AI Agents
 
