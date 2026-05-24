@@ -4,7 +4,7 @@ I've been thinking a lot lately about what it actually takes to make an AI agent
 
 I built this demo to show two complementary ways to wire SQL Server into a GitHub Copilot agent using MCP on SQL Server 2025. Both run in Docker Compose with no local installs beyond Docker Desktop.
 
-- **Data API Builder (DAB)** — zero-code MCP server. Point it at a database and it exposes REST, GraphQL, and MCP endpoints automatically. It's the right tool when you want natural-language CRUD over a known application schema.
+- **Data API Builder (DAB)** — zero-code MCP server. Point it at a database and it exposes REST, GraphQL, and MCP endpoints automatically. It's the right tool when you want natural-language CRUD over a known application schema. DAB's MCP support works great for user databases, but I tried to expose system DMVs through DAB and ran into a wall  unsupported data types and query patterns in the system DMV/DMFs meant that approach broke down quickly. That's what pushed me toward the custom server.
 - **Custom SQL MCP Server** — a TypeScript MCP server with 30 hand-crafted tools that query SQL Server DMVs directly. Built for DBA-style diagnostics: blocking chains, wait stats, missing indexes, query plan cache, memory pressure, and more. A single container manages connections to multiple SQL Server instances. Add a new server to a JSON array in `.env`, restart the container, and the agent can reach it immediately.
 
 The agent never touches the database directly. It calls your tool server. Your tool server runs the SQL. You stay in control.
