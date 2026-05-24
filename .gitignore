@@ -4,6 +4,7 @@
 # Node
 node_modules/
 sql-mcp-server/dist/
+sql-mcp-server/package-lock.json
 
 # Docker volumes
 data/
