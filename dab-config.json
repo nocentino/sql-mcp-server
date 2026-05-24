@@ -1,0 +1,146 @@
+{
+  "$schema": "https://github.com/Azure/data-api-builder/releases/download/v1.6.87/dab.draft.schema.json",
+  "data-source": {
+    "database-type": "mssql",
+    "connection-string": "@env('MSSQL_CONNECTION_STRING')",
+    "options": {
+      "set-session-context": false
+    }
+  },
+  "runtime": {
+    "rest": {
+      "enabled": true,
+      "path": "/api",
+      "request-body-strict": true
+    },
+    "graphql": {
+      "enabled": true,
+      "path": "/graphql",
+      "allow-introspection": true
+    },
+    "host": {
+      "cors": {
+        "origins": [],
+        "allow-credentials": false
+      },
+      "authentication": {
+        "provider": "StaticWebApps"
+      },
+      "mode": "development"
+    }
+  },
+  "mcp": {
+    "enabled": true,
+    "path": "/mcp"
+  },
+  "entities": {
+    "Products": {
+      "source": {
+        "object": "dbo.Products",
+        "type": "table"
+      },
+      "graphql": {
+        "enabled": true,
+        "type": {
+          "singular": "Product",
+          "plural": "Products"
+        }
+      },
+      "rest": {
+        "enabled": true
+      },
+      "permissions": [
+        {
+          "role": "anonymous",
+          "actions": [
+            {
+              "action": "*"
+            }
+          ]
+        }
+      ],
+      "description": "Product catalog with current pricing, inventory levels, and category assignments. Use this for product lookups, stock checks, and pricing queries. Each product has a unique ProductID."
+    },
+    "Categories": {
+      "source": {
+        "object": "dbo.Categories",
+        "type": "table"
+      },
+      "graphql": {
+        "enabled": true,
+        "type": {
+          "singular": "Category",
+          "plural": "Categories"
+        }
+      },
+      "rest": {
+        "enabled": true
+      },
+      "permissions": [
+        {
+          "role": "anonymous",
+          "actions": [
+            {
+              "action": "*"
+            }
+          ]
+        }
+      ],
+      "description": "Product category definitions including Electronics, Books, Clothing, and Home & Garden. Use this to understand product organization and category details. Avoid joining to Products directly; filter Products by Category field instead."
+    },
+    "Orders": {
+      "source": {
+        "object": "dbo.Orders",
+        "type": "table"
+      },
+      "graphql": {
+        "enabled": true,
+        "type": {
+          "singular": "Order",
+          "plural": "Orders"
+        }
+      },
+      "rest": {
+        "enabled": true
+      },
+      "permissions": [
+        {
+          "role": "anonymous",
+          "actions": [
+            {
+              "action": "*"
+            }
+          ]
+        }
+      ],
+      "description": "Customer order headers with order dates, customer information, status, and total amounts. Each order may have multiple line items in OrderDetails. Status values: Pending, Shipped, Delivered, Cancelled."
+    },
+    "OrderDetails": {
+      "source": {
+        "object": "dbo.OrderDetails",
+        "type": "table"
+      },
+      "graphql": {
+        "enabled": true,
+        "type": {
+          "singular": "OrderDetail",
+          "plural": "OrderDetails"
+        }
+      },
+      "rest": {
+        "enabled": true
+      },
+      "permissions": [
+        {
+          "role": "anonymous",
+          "actions": [
+            {
+              "action": "*"
+            }
+          ]
+        }
+      ],
+      "description": "Individual line items for each order, including product, quantity, and unit price at time of purchase. Always join to Orders via OrderID and Products via ProductID to get complete order information."
+    }
+  }
+}

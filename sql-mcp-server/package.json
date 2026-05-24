@@ -1,0 +1,23 @@
+{
+  "name": "sql-mcp-server",
+  "version": "1.0.0",
+  "description": "SQL Server DBA monitoring MCP server with full T-SQL access",
+  "scripts": {
+    "build": "esbuild src/index.ts --platform=node --target=node22 --bundle --packages=external --outfile=dist/index.js",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "express": "^4.21.0",
+    "mssql": "^11.0.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/mssql": "^9.1.5",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.4.0"
+  }
+}
