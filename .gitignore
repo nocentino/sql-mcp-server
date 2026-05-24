@@ -17,5 +17,19 @@ dab-config.json.backup  # Backup of manual config
 certs/*.crt
 certs/*.key
 
+# Always On AG setup scripts (demo/test only)
+scripts/setup-ag.sql
+scripts/setup-ag-sqlserver2.sql
+scripts/setup-ag-trust1.sql
+scripts/setup-ag-trust2.sql
+scripts/create-ag.sql
+scripts/create-testdb.sql
+scripts/restore-testdb.sql
+scripts/join-ag.sql
+scripts/add-db-to-ag.sql
+scripts/verify-ag.sql
+scripts/generate-insert-load.sql
+
 # macOS
 .DS_Store
+docs/AG-SETUP.md

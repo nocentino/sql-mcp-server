@@ -1,13 +1,29 @@
 # SQL Server MCP Demo
 
-I've been thinking a lot lately about what it actually takes to make an AI agent useful for database work. Writing T-SQL is the easy part a coding assistant can do that out of the box. The hard part is giving it *visibility* into a running SQL Server: which sessions are blocked right now, where the wait stats are pointing, which indexes the optimizer is begging for. Without that, the agent is just guessing.
+I've been thinking a lot lately about what it actually takes to make an AI agent genuinely useful for database work, both for administration and for application access to the data tier. Writing the T-SQL code is the easy part. A coding assistant can do that out of the box. The hard part is giving it visibility into a running SQL Server: which sessions are blocked right now, where the wait stats are pointing, which indexes the optimizer is begging for. Without that, the agent is just guessing. With application access, an agent can propose how things should work, but what if we had tools that added context describing the database's schema and what the entities actually mean to the application when interacting with the database agentically?
 
-I built this demo to show two complementary ways to wire SQL Server into a GitHub Copilot agent using MCP on SQL Server 2025. Both run in Docker Compose with no local installs beyond Docker Desktop.
+Imagine being able to ask your database estate, "What's the situation with backups in my environment?" Or "What products are we going to sell out of by the end of the quarter?" With MCP, you can do just that.
 
-- **Data API Builder (DAB)** — zero-code MCP server. Point it at a database and it exposes REST, GraphQL, and MCP endpoints automatically (after some congfiguration). [DAB's MCP support](https://learn.microsoft.com/en-us/azure/data-api-builder/mcp/overview) is built for controlled agentic interactions against user databases — it's the right tool when you want natural-language CRUD over a known application schema. I tried to expose system DMVs through DAB and ran into a wall — unsupported data types and query patterns in the system DMV/DMFs meant that approach broke down quickly. That's what pushed me toward the custom server.
-- **Custom SQL MCP Server** — a TypeScript MCP server with 30 hand-crafted tools that query SQL Server DMVs directly. Built for DBA-style diagnostics: blocking chains, wait stats, missing indexes, query plan cache, memory pressure, and more. A single container manages connections to multiple SQL Server instances. Add a new server to a JSON array in `.env`, restart the container, and the agent can reach it immediately.
+## Why I Built This
 
-The agent never touches the database directly. It calls your tool server. Your tool server runs the SQL. You stay in control.
+The Model Context Protocol (MCP) is how you extend an AI agent's reach beyond what it already knows. It lets you expose Tools (structured function calls) that an agent can invoke during a conversation. The agent decides when to call them, chains them together, and synthesizes the results into a coherent answer. You can quickly get your arms around a complex estate with tools like this.
+
+For SQL Server, this means you can ask your agent a question like "are there any blocking sessions right now, and what SQL is causing it?" and instead of generating a query for you to run manually, it goes and gets the answer itself, calling DMVs, correlating the results, and giving you a diagnosis in plain English.
+
+I tried the zero-code path first. [Data API Builder (DAB)](https://learn.microsoft.com/en-us/azure/data-api-builder/mcp/overview) can automatically stand up an MCP server. Point it at a user database, and it exposes REST, GraphQL, and MCP endpoints with no code. It works great for controlled agentic interactions against user databases. Ask "which products are low on inventory?" and the agent calls the DAB MCP endpoint, filters the Products table, and returns the answer. No SQL written, no schema required. But when I tried to expose system DMVs via DAB, it quickly broke down. Unsupported data types and query patterns in the system views prevented DAB from surfacing what I needed. So I wrote a custom server.
+
+The result is an MCP server with 30 tools that query SQL Server DMVs directly. A single container manages connection pools to multiple SQL Server instances. The agent never touches the database directly. It calls the tool server, the tool server runs the structured SQL tools, and you stay in control.
+
+So what you have here is a container-based environment that allows you to experiment with both DBA tasks via the custom-built MCP server and to use DAB to interact with a user database, all agentically.
+
+## How It Works
+
+The demo wires up two complementary MCP servers, both running in Docker Compose:
+
+- **Data API Builder (DAB)**: zero-code MCP server for the ProductsDB application database. Exposes CRUD operations on Products, Categories, Orders, and OrderDetails over REST, GraphQL, and MCP. This is the right tool when you want natural-language data access against a known application schema.
+- **Custom SQL MCP Server**: 30 DBA-focused tools querying SQL Server DMVs directly. Blocking chains, wait stats, missing indexes, query plan cache, memory pressure, CPU history, AG health, backup status, and more. Supports multiple SQL Server instances. Add a new server to a JSON array in `.env`, restart the container, and the agent can reach it immediately.
+
+The multi-instance support is one of the parts I'm most happy with. Instances are registered via the `INSTANCES` environment variable at startup. Each gets its own lazy connection pool. The first tool call opens the pool, subsequent calls reuse it, and the pool self-heals if it errors. The `fan_out_query` tool runs the same T-SQL across all instances in parallel, so if one instance is down, it doesn't cancel queries on the others.
 
 Let's go.
 
@@ -222,6 +238,12 @@ Agent: "15% discount applied to all Furniture products:
         - Office Chair:   $299.99 → $254.99"
 ```
 
+Notice that the agent never wrote an `UPDATE` statement. It read the records, calculated the new prices, and issued individual PATCH calls through the DAB REST layer. That's controlled agentic access to user data — no direct SQL, no schema knowledge required from the caller.
+
+You might be wondering where the guardrails are. That's inside the DAB configuration. The [dab-config.json](dab-config.json) file in this demo explicitly defines which tables, views, and other objects are exposed (Products, Categories, Orders, OrderDetails) and what actions are allowed on each. You could lock this down to read-only for certain entities, restrict updates to specific columns, or add authentication and role-based permissions. The agent never sees SQL. It just calls the MCP tool, and DAB enforces the rules.
+
+Each entity includes a description field that tells the agent when and how to use it. That's critical. The agent reads those descriptions at runtime to decide which tool to invoke. Good descriptions mean the agent picks the right entity for the job. Poor descriptions mean it guesses.
+
 ---
 
 ### Multi-instance wait stats comparison
@@ -395,6 +417,12 @@ docker compose exec sqlserver /opt/mssql-tools18/bin/sqlcmd \
   -S localhost -U sa -P 'S0methingS@Str0ng!' -C -d ProductsDB \
   -Q "SELECT TOP 5 ProductName, UnitPrice FROM Products"
 ```
+
+## Wrapping Up
+
+I built this to see what a properly instrumented AI agent could actually do with a real SQL Server problem. Not just write queries, but diagnose them. The 30 DMV-backed tools give agents enough visibility to identify blocking chains, spot expensive queries, find missing indexes, and flag configuration concerns, all from a single natural-language question.
+
+Clone the repo, spin up the containers, and see what it does in your environment. The [demos/ folder](demos/) has six scripted walkthroughs that show exactly what the agent can do. Let me know how it works.
 
 ## Stop
 
