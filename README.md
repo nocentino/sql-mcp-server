@@ -90,24 +90,18 @@ See the [demos/](demos/) folder to get started with working examples.
 
 ## Connect AI Agents
 
-### VS Code / GitHub Copilot
-
-Once the containers are running, register both servers in your VS Code MCP config at `~/Library/Application Support/Code/User/mcp.json`:
+Once the containers are running, register both servers with your AI agent. For [GitHub Copilot in VS Code](https://code.visualstudio.com/docs/copilot/customization/mcp-servers), add them to the MCP configuration file:
 
 ```json
 {
   "servers": {
-    "products-db": {
-      "type": "http",
-      "url": "http://localhost:5001/mcp"
-    },
-    "sql-dba": {
-      "type": "http",
-      "url": "http://localhost:3001/mcp"
-    }
+    "sql-dba":     { "type": "http", "url": "http://localhost:3001/mcp" },
+    "products-db": { "type": "http", "url": "http://localhost:5001/mcp" }
   }
 }
 ```
+
+For [Claude Desktop](https://modelcontextprotocol.io/quickstart/user), use the same server URLs in the Claude configuration. The [demos/](demos/) folder has six scripted walkthroughs that show exactly what the agent can do.
 
 ## What This Looks Like in Practice
 
