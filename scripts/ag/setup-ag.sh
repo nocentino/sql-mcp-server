@@ -10,7 +10,7 @@
 #   - Shared volume 'ag-certs' mounted at /var/opt/ag-certs on both instances
 #
 # Usage:
-#   ./scripts/setup-ag.sh
+#   ./scripts/ag/setup-ag.sh
 #
 # What it does:
 #   1. Creates certificates on both instances

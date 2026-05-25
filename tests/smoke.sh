@@ -25,7 +25,7 @@ function sql_test() {
   echo -n "  ${description}... "
   
   local result
-  result=$(docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd \
+  result=$(docker compose exec -T sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
     -S localhost -U dba_monitor -P 'MonitorP@ss123!' -C -d master \
     -Q "${query}" -h -1 -W 2>&1)
   
@@ -63,7 +63,7 @@ function test_category() {
 
 # Verify dba_monitor can connect
 echo "Checking dba_monitor connection..."
-if ! docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd \
+if ! docker compose exec -T sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
   -S localhost -U dba_monitor -P 'MonitorP@ss123!' -C -d master \
   -Q "SELECT @@VERSION" -h -1 > /dev/null 2>&1; then
   echo -e "${RED}ERROR: Cannot connect as dba_monitor${NC}"

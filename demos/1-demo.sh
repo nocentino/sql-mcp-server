@@ -98,7 +98,7 @@ curl http://localhost:5001/health
 # Confirm SQL Server is running and check the version
 ############################################################################################################
 
-docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
     -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
     -Q "SELECT @@VERSION"
 
@@ -107,6 +107,6 @@ docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
 # Look at the databases that were created by sql-init
 ############################################################################################################
 
-docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
     -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
     -Q "SELECT name, state_desc, recovery_model_desc FROM sys.databases ORDER BY name"

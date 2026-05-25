@@ -1,6 +1,6 @@
 #!/bin/bash
 ############################################################################################################
-# 3 (DBA). Copilot as Your DBA — Live Diagnostics Against SQL Server 2025
+# 4. Copilot as Your DBA — Live Diagnostics Against SQL Server 2025
 #    Each scenario starts with a natural-language question in Copilot Chat
 #    and ends with an AI-generated diagnosis backed by real DMV data.
 #    MCP server used: sql-dba (http://127.0.0.1:3001/mcp)
@@ -27,7 +27,7 @@
 ############################################################################################################
 
 # Terminal 1 — Connection A: holds an exclusive lock for 5 minutes, then rolls back
-docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
     -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
     -d ProductsDB \
     -Q "BEGIN TRANSACTION;
@@ -41,7 +41,7 @@ docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
 # Terminal 2 — Connection B: raw SQL SELECT blocked by A's X lock
 ############################################################################################################
 
-docker exec -it sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+docker exec -it sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
     -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
     -d ProductsDB \
     -Q "SELECT ProductID, ProductName, UnitPrice FROM dbo.Products WHERE Category = 'Electronics';"
@@ -71,7 +71,7 @@ curl -s "http://localhost:5001/api/Products?\$filter=Category%20eq%20'Electronic
 # Clean up — kill the head blocker (SPID reported by connection A above)
 ############################################################################################################
 
-docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
     -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
     -Q "KILL <spid_from_blocking_chain>"
 
@@ -94,7 +94,7 @@ docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
 # Generate I/O and CPU load so the wait stats show something interesting
 ############################################################################################################
 
-docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
     -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
     -d ProductsDB \
     -Q "DECLARE @i INT = 0;
@@ -125,7 +125,7 @@ docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
 ############################################################################################################
 
 # Generate table scans to populate the missing index DMVs
-docker exec sql-mcp-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
     -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
     -d ProductsDB \
     -Q "SELECT p.ProductName, p.UnitPrice, p.UnitsInStock

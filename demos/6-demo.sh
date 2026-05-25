@@ -1,7 +1,7 @@
 #!/bin/bash
 ############################################################################################################
-# 5. One MCP Server, Many SQL Server Instances
-#    Architecture plan and migration walkthrough.
+# 6. Always On Availability Groups with SQL Server 2025
+#    Multi-instance monitoring and replication health diagnostics.
 #
 #    CURRENT (one server, one instance):
 #

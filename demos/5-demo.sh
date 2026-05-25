@@ -1,6 +1,6 @@
 #!/bin/bash
 ############################################################################################################
-# 4. One MCP Server, Many SQL Server Instances
+# 5. One MCP Server, Many SQL Server Instances
 #    The connectionManager.ts architecture — lazy pools, per-instance routing, fleet-wide operations.
 #
 #    ARCHITECTURE:

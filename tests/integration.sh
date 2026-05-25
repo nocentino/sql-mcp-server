@@ -46,12 +46,12 @@ echo ""
 # ── SQL Server direct ────────────────────────────────────────
 echo "SQL Server direct"
 
-RESULT=$(docker compose exec -T sqlserver \
+RESULT=$(docker compose exec -T sqlserver1 \
   /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SQL_PASS" -C -d ProductsDB \
   -Q "SELECT COUNT(*) FROM dbo.Products" -h -1 2>/dev/null | head -1 | xargs)
 [[ "$RESULT" =~ ^[0-9]+$ ]] && ok "ProductsDB reachable ($RESULT products)" || fail "SQL Server connection"
 
-DBA_RESULT=$(docker compose exec -T sqlserver \
+DBA_RESULT=$(docker compose exec -T sqlserver1 \
   /opt/mssql-tools18/bin/sqlcmd -S localhost -U dba_monitor -P "MonitorP@ss123!" -C \
   -Q "SELECT COUNT(*) FROM sys.dm_exec_sessions" -h -1 2>/dev/null | head -1 | xargs)
 [[ "$DBA_RESULT" =~ ^[0-9]+$ ]] && ok "dba_monitor can query DMVs ($DBA_RESULT sessions)" || fail "dba_monitor DMV access"

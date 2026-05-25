@@ -7,10 +7,10 @@
 set -e
 
 echo "Setting up DAB CLI..."
-./scripts/setup-dab-cli.sh
+./scripts/dab/setup-dab-cli.sh
 
 echo "Generating dab-config.json..."
-./scripts/generate-dab-config.sh
+./scripts/dab/generate-dab-config.sh
 
 echo ""
 echo "Setup complete. Run 'docker compose up --build -d' to start."

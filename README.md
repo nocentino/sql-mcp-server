@@ -418,7 +418,7 @@ The demo environment includes two SQL Server instances, both pre-configured with
 
 ```bash
 # After containers are running and healthy
-./scripts/setup-ag.sh
+./scripts/ag/setup-ag.sh
 ```
 
 **What it does:**
@@ -444,7 +444,7 @@ Once the AG is running, you can test replication by inserting data on the primar
 ```bash
 docker compose down -v    # removes containers + volumes
 docker compose up -d      # clean start
-./scripts/setup-ag.sh     # re-run if you want the AG back
+./scripts/ag/setup-ag.sh     # re-run if you want the AG back
 ```
 
 See [docs/AG-SETUP.md](docs/AG-SETUP.md) for technical details and manual setup steps.
@@ -478,6 +478,7 @@ docker compose down -v    # stop and delete all data
 │   ├── Dockerfile
 │   └── package.json
 ├── demos/                       # walkthrough demo scripts (1–6)
+├── examples/                    # example health reports and diagnostics output
 ├── scripts/
 │   ├── ag/
 │   │   ├── init-sqlserver1.sql      # ProductsDB schema, sample data, dba_monitor + dab_app logins

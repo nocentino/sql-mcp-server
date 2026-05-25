@@ -9,7 +9,7 @@ docker compose up --build -d
 
 echo ""
 echo "Waiting for SQL Server to be ready..."
-until docker compose exec -T sqlserver \
+until docker compose exec -T sqlserver1 \
   /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
   -P "${SA_PASSWORD:-S0methingS@Str0ng!}" -C -Q "SELECT 1" &>/dev/null; do
   sleep 3
