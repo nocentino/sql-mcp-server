@@ -316,6 +316,8 @@ Agent: "## SQL Server Health Report — SqlServer1
         log backup job is running on schedule."
 ```
 
+**Want to see a real example?** Check out the [4-multi-instance-health-report-with-ag-heavy-load.md](https://github.com/nocentino/sql-mcp-server/blob/main/examples/4-multi-instance-health-report-with-ag-heavy-load.md) report, which shows the agent diagnosing an Always On AG environment under a 100,000-row bulk insert workload — AG health metrics, replication throughput (594 MB/s send rate), wait statistics, query performance, and I/O latency, all captured in a single agent-generated report. The [examples/](examples/) folder includes four sequential reports demonstrating the full diagnostic workflow from baseline to production load.
+
 ## Multi-Instance Architecture
 
 One of the things I'm most happy with in this design is how the multi-instance support works. A single `sql-mcp-server` container manages connection pools to as many SQL Server instances as you need. Instances are registered at startup via the `INSTANCES` environment variable in `.env`.
@@ -481,7 +483,7 @@ docker compose down -v    # stop and delete all data
 │   ├── Dockerfile
 │   └── package.json
 ├── demos/                       # walkthrough demo scripts (1–6)
-├── examples/                    # example health reports and diagnostics output
+├── examples/                    # agent-generated health reports (baseline → workload → AG setup → heavy load)
 ├── scripts/
 │   ├── ag/
 │   │   ├── init-sqlserver1.sql      # ProductsDB schema, sample data, dba_monitor + dab_app logins
