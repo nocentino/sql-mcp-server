@@ -67,7 +67,7 @@ See the [demos/](demos/) folder to get started with working examples.
 │                                                                      │
 │  ┌───────────────┐   CRUD   ┌──────────────────────────────────┐     │
 │  │               │◄─────────│  DAB MCP  (dab-mcp :5001)        │     │
-│  │  sqlserver    │          │  REST / GraphQL / MCP            │     │
+│  │  sqlserver1   │          │  REST / GraphQL / MCP            │     │
 │  │  - ProductsDB │          └──────────────────────────────────┘     │
 │  │  Port 1433    │                                                   │
 │  │               │  SELECT  ┌──────────────────────────────────┐     │
@@ -83,7 +83,7 @@ See the [demos/](demos/) folder to get started with working examples.
 
 | Service | Purpose | Host port |
 |---|---|---|
-| `sqlserver` | SQL Server 2025 — ProductsDB + monitoring | 1433 |
+| `sqlserver1` | SQL Server 2025 — ProductsDB + monitoring | 1433 |
 | `sqlserver2` | SQL Server 2025 — second instance for testing | 1434 |
 | `dab-mcp` | DAB — ProductsDB CRUD via MCP | 5001 |
 | `sql-mcp-server` | Custom MCP — DBA monitoring (multi-instance) | 3001 |
@@ -247,7 +247,7 @@ Each entity includes a description field that tells the agent when and how to us
 ```
 Agent → list_instances()
       ← [
-          { name: "SqlServer1", host: "sqlserver",  port: 1433 },
+          { name: "SqlServer1", host: "sqlserver1",  port: 1433 },
           { name: "SqlServer2", host: "sqlserver2", port: 1433 }
         ]
 
@@ -321,7 +321,7 @@ One of the things I'm most happy with in this design is how the multi-instance s
 
 ```
 INSTANCES=[
-  {"name":"default",    "host":"sqlserver",  "port":1433, "user":"dba_monitor", "password":"..."},
+  {"name":"default",    "host":"sqlserver1",  "port":1433, "user":"dba_monitor", "password":"..."},
   {"name":"sqlserver2", "host":"sqlserver2", "port":1433, "user":"sa",          "password":"..."}
 ]
 ```
@@ -375,7 +375,7 @@ Copilot: "check wait stats across all SQL servers"
 2. fan_out_query({ query: "SELECT ...", instances: ["default", "sqlserver2"] })
 
    Promise.allSettled([
-     queryInstance("default",    sql)  ──► sqlserver:1433   ─┐
+     queryInstance("default",    sql)  ──► sqlserver1:1433  ─┐
      queryInstance("sqlserver2", sql)  ──► sqlserver2:1433  ─┤  parallel
    ])                                                          ↓
    returns: {
@@ -407,10 +407,47 @@ curl -X POST http://localhost:5001/graphql \
 If you want to poke at the database directly during testing:
 
 ```bash
-docker compose exec sqlserver /opt/mssql-tools18/bin/sqlcmd \
+docker compose exec sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
   -S localhost -U sa -P 'S0methingS@Str0ng!' -C -d ProductsDB \
   -Q "SELECT TOP 5 ProductName, UnitPrice FROM Products"
 ```
+
+## Optional: Configure Always On Availability Group
+
+The demo environment includes two SQL Server instances, both pre-configured with HADR enabled. By default, they run independently — perfect for basic multi-instance demos. If you want to test Always On Availability Groups (synchronous replication, manual failover, AG health monitoring), run the automated setup script:
+
+```bash
+# After containers are running and healthy
+./scripts/setup-ag.sh
+```
+
+**What it does:**
+- Creates certificate-based authentication between both instances
+- Configures database mirroring endpoints (port 5022)
+- Creates a cluster-less availability group (`TestAG`)
+- Creates and seeds `TestDB` with sample data
+- Adds the database to the AG with synchronous commit
+- Verifies synchronization status
+
+**AG Configuration:**
+- **AG Name:** TestAG
+- **Primary:** sqlserver1 (port 1433)
+- **Secondary:** sqlserver2 (port 1434)
+- **Sync Mode:** SYNCHRONOUS_COMMIT
+- **Failover:** MANUAL
+- **Cluster Type:** NONE (cluster-less AG)
+
+Once the AG is running, you can test replication by inserting data on the primary and querying the secondary, or use the `get_ag_health` MCP tool to check synchronization queues and health status.
+
+**Tear it down:** The AG setup persists across container restarts. To reset everything:
+
+```bash
+docker compose down -v    # removes containers + volumes
+docker compose up -d      # clean start
+./scripts/setup-ag.sh     # re-run if you want the AG back
+```
+
+See [docs/AG-SETUP.md](docs/AG-SETUP.md) for technical details and manual setup steps.
 
 ## Wrapping Up
 
@@ -428,7 +465,7 @@ docker compose down -v    # stop and delete all data
 ## Project layout
 
 ```
-├── docker-compose.yml           # service orchestration (sqlserver, sqlserver2, dab-mcp, sql-mcp-server)
+├── docker-compose.yml           # service orchestration (sqlserver1, sqlserver2, dab-mcp, sql-mcp-server)
 ├── .env                         # SQL Server passwords, INSTANCES config
 ├── dab-config.json              # DAB entity config for ProductsDB
 ├── start.sh / stop.sh / setup.sh
@@ -442,7 +479,13 @@ docker compose down -v    # stop and delete all data
 │   └── package.json
 ├── demos/                       # walkthrough demo scripts (1–6)
 ├── scripts/
-│   ├── init-sqlserver1.sql      # ProductsDB schema, sample data, dba_monitor + dab_app logins
+│   ├── ag/
+│   │   ├── init-sqlserver1.sql      # ProductsDB schema, sample data, dba_monitor + dab_app logins
+│   │   ├── init-sqlserver2.sql      # dba_monitor setup for secondary instance
+│   │   └── setup-ag.sh              # Automated Always On AG setup script
+│   └── dab/
+│       ├── generate-dab-config.sh   # DAB configuration generator
+│       └── setup-dab-cli.sh         # DAB CLI setup
 ├── tests/
 │   ├── integration.sh           # endpoint integration tests
 │   ├── smoke.sh                 # T-SQL smoke tests against dba_monitor

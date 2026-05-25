@@ -1,20 +1,20 @@
-version: '3.8'
-
 services:
   # SQL Server 2025 (latest with advanced features)
-  sqlserver:
+  sqlserver1:
     image: mcr.microsoft.com/mssql/server:2025-latest
-    container_name: sql-mcp-sqlserver
-    hostname: sqlserver
+    container_name: sql-mcp-sqlserver1
+    hostname: sqlserver1
     environment:
       - ACCEPT_EULA=${ACCEPT_EULA:-Y}
       - MSSQL_SA_PASSWORD=${SA_PASSWORD:-S0methingS@Str0ng!}
       - MSSQL_PID=Developer
+      - MSSQL_ENABLE_HADR=1
     ports:
       - "1433:1433"
     volumes:
       - sql-data:/var/opt/mssql
-      - ./scripts/init-sqlserver1.sql:/docker-entrypoint-initdb.d/init-sqlserver1.sql:ro
+      - ag-certs:/var/opt/ag-certs
+      - ./scripts/ag/init-sqlserver1.sql:/docker-entrypoint-initdb.d/init-sqlserver1.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${SA_PASSWORD:-S0methingS@Str0ng!}\" -C -l 5 -t 5 -h -1 -Q \"SET NOCOUNT ON; SELECT 'PROBEOK'\" 2>/dev/null | grep -q '^PROBEOK$$'"]
       interval: 10s
@@ -30,7 +30,7 @@ services:
     image: mcr.microsoft.com/mssql/server:2025-latest
     container_name: sql-mcp-init
     depends_on:
-      sqlserver:
+      sqlserver1:
         condition: service_healthy
     volumes:
       - ./scripts:/scripts:ro
@@ -39,7 +39,7 @@ services:
         echo 'Waiting for SQL Server to be ready...' &&
         sleep 10 &&
         echo 'Initializing ProductsDB and dba_monitor account...' &&
-        /opt/mssql-tools18/bin/sqlcmd -S sqlserver -U sa -P '${SA_PASSWORD:-S0methingS@Str0ng!}' -C -i /scripts/init-sqlserver1.sql &&
+        /opt/mssql-tools18/bin/sqlcmd -S sqlserver1 -U sa -P '${SA_PASSWORD:-S0methingS@Str0ng!}' -C -i /scripts/ag/init-sqlserver1.sql &&
         echo 'All initialization complete!'
       "
     networks:
@@ -51,7 +51,7 @@ services:
     container_name: sql-mcp-dab
     hostname: dab-mcp
     environment:
-      - MSSQL_CONNECTION_STRING=Server=sqlserver,1433;Database=${SQL_DATABASE:-ProductsDB};User ID=dab_app;Password=DabP@ss123!;Encrypt=false;TrustServerCertificate=true;
+      - MSSQL_CONNECTION_STRING=Server=sqlserver1,1433;Database=${SQL_DATABASE:-ProductsDB};User ID=dab_app;Password=DabP@ss123!;Encrypt=false;TrustServerCertificate=true;
     ports:
       - "5001:5000"
     volumes:
@@ -78,8 +78,11 @@ services:
       - ACCEPT_EULA=${ACCEPT_EULA:-Y}
       - MSSQL_SA_PASSWORD=${SA_PASSWORD:-S0methingS@Str0ng!}
       - MSSQL_PID=Developer
+      - MSSQL_ENABLE_HADR=1
     ports:
       - "1434:1433"
+    volumes:
+      - ag-certs:/var/opt/ag-certs
     healthcheck:
       test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${SA_PASSWORD:-S0methingS@Str0ng!}\" -C -l 5 -t 5 -h -1 -Q \"SET NOCOUNT ON; SELECT 'PROBEOK'\" 2>/dev/null | grep -q '^PROBEOK$$'"]
       interval: 10s
@@ -90,7 +93,7 @@ services:
       - sql-mcp-network
     restart: unless-stopped
 
-  # Create dba_monitor on sqlserver2 (mirrors the account on sqlserver)
+  # Create dba_monitor on sqlserver2 (mirrors the account on sqlserver1)
   sql-init-sqlserver2:
     image: mcr.microsoft.com/mssql/server:2025-latest
     container_name: sql-mcp-init-sqlserver2
@@ -102,7 +105,7 @@ services:
     command: >
       /bin/bash -c "
         echo 'Creating dba_monitor on sqlserver2...' &&
-        /opt/mssql-tools18/bin/sqlcmd -S sqlserver2 -U sa -P '${SA_PASSWORD:-S0methingS@Str0ng!}' -C -i /scripts/init-sqlserver2.sql &&
+        /opt/mssql-tools18/bin/sqlcmd -S sqlserver2 -U sa -P '${SA_PASSWORD:-S0methingS@Str0ng!}' -C -i /scripts/ag/init-sqlserver2.sql &&
         echo 'sqlserver2 initialization complete!'
       "
     networks:
@@ -133,6 +136,8 @@ services:
 
 volumes:
   sql-data:
+    driver: local
+  ag-certs:
     driver: local
 
 networks:
