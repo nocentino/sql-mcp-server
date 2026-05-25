@@ -43,7 +43,7 @@ docker compose ps
 curl http://localhost:3001/health   # SQL MCP server
 curl http://localhost:5001/health   # DAB
 
-# 4. Wire up VS Code add to ~/Library/Application Support/Code/User/mcp.json
+# 4. Wire up VS Code add to ~/Library/Application Support/Code/User/mcp.json (or see below for additional client configs)
 {
   "servers": {
     "sql-dba":     { "type": "http", "url": "http://localhost:3001/mcp" },
@@ -55,9 +55,12 @@ curl http://localhost:5001/health   # DAB
 #    "Tell me about this SQL Server version, uptime, and any config concerns."
 
 # 6. Head to the demos/ folder to walk through real scenarios.
+
+# Optional: Configure Always On Availability Group between both instances
+./scripts/ag/setup-ag.sh    # certificate auth, sync replication, TestDB
 ```
 
-See the [demos/](demos/) folder to get started with working examples.
+See the [demos/](demos/) folder for six scripted walkthroughs. For Always On AG setup details, see the [Optional: Configure Always On Availability Group](#optional-configure-always-on-availability-group) section.
 
 ## Architecture
 
@@ -583,7 +586,7 @@ The code is at [github.com/nocentino/sql-mcp-server](https://github.com/nocentin
 - **`dba_monitor` permissions** — created with `VIEW SERVER STATE` only. No stored procedures or views on the monitored server. All T-SQL lives inside the MCP server's tool definitions.
 - **Adding a new instance** — add an entry to the `INSTANCES` array in `.env` and restart `sql-mcp-server`. No code changes needed.
 - **SA password** — the default is `S0methingS@Str0ng!`. Change it in `.env` before use.
-- **Regenerating `dab-config.json`** — if you change the schema, run `./scripts/generate-dab-config.sh`.
+- **Regenerating `dab-config.json`** — if you change the schema, run `./scripts/dab/generate-dab-config.sh`.
 
 ## Acknowledgements
 
