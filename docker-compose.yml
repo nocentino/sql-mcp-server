@@ -14,6 +14,7 @@ services:
     volumes:
       - sql-data:/var/opt/mssql
       - ag-certs:/var/opt/ag-certs
+      - ag-backups:/var/opt/mssql/backup
       - ./scripts/ag/init-sqlserver1.sql:/docker-entrypoint-initdb.d/init-sqlserver1.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${SA_PASSWORD:-S0methingS@Str0ng!}\" -C -l 5 -t 5 -h -1 -Q \"SET NOCOUNT ON; SELECT 'PROBEOK'\" 2>/dev/null | grep -q '^PROBEOK$$'"]
@@ -83,6 +84,7 @@ services:
       - "1434:1433"
     volumes:
       - ag-certs:/var/opt/ag-certs
+      - ag-backups:/var/opt/mssql/backup
     healthcheck:
       test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${SA_PASSWORD:-S0methingS@Str0ng!}\" -C -l 5 -t 5 -h -1 -Q \"SET NOCOUNT ON; SELECT 'PROBEOK'\" 2>/dev/null | grep -q '^PROBEOK$$'"]
       interval: 10s
@@ -138,6 +140,8 @@ volumes:
   sql-data:
     driver: local
   ag-certs:
+    driver: local
+  ag-backups:
     driver: local
 
 networks:

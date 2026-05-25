@@ -101,6 +101,17 @@ fi
 log_info "Both SQL Server instances are running with HADR enabled"
 
 # ============================================================================
+# STEP 1.5: Fix ag-certs Volume Permissions
+# ============================================================================
+log_step "Setting up certificate directory permissions..."
+
+# Fix permissions on both instances so mssql user can write certificates
+docker exec --user root "$PRIMARY_CONTAINER" bash -c "mkdir -p /var/opt/ag-certs && chown mssql:root /var/opt/ag-certs && chmod 777 /var/opt/ag-certs"
+docker exec --user root "$SECONDARY_CONTAINER" bash -c "mkdir -p /var/opt/ag-certs && chown mssql:root /var/opt/ag-certs && chmod 777 /var/opt/ag-certs"
+
+log_info "Certificate directory permissions configured"
+
+# ============================================================================
 # STEP 2: Create Master Key and Certificates on Primary
 # ============================================================================
 log_step "Creating master key and certificate on primary..."
@@ -110,15 +121,23 @@ USE master;
 IF NOT EXISTS (SELECT * FROM sys.symmetric_keys WHERE name = '##MS_DatabaseMasterKey##')
     CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'StrongPassword123!';
 
+-- Drop endpoint first if it exists (endpoints lock certificates)
+IF EXISTS (SELECT * FROM sys.endpoints WHERE name = 'Hadr_endpoint')
+    DROP ENDPOINT Hadr_endpoint;
+
 IF EXISTS (SELECT * FROM sys.certificates WHERE name = 'sqlserver1_cert')
     DROP CERTIFICATE sqlserver1_cert;
 
 CREATE CERTIFICATE sqlserver1_cert
-WITH SUBJECT = 'Certificate for sqlserver1 endpoint',
-     EXPIRY_DATE = '2030-12-31';
+WITH SUBJECT = 'Certificate for sqlserver1 endpoint';
 
-BACKUP CERTIFICATE sqlserver1_cert TO FILE = '/var/opt/ag-certs/sqlserver1_cert.cer';
-" > /dev/null
+BACKUP CERTIFICATE sqlserver1_cert 
+TO FILE = '/var/opt/ag-certs/sqlserver1_cert.cer'
+WITH PRIVATE KEY (
+    FILE = '/var/opt/ag-certs/sqlserver1_cert.pvk',
+    ENCRYPTION BY PASSWORD = 'CertPassword123!'
+);
+"
 
 log_info "Primary certificate created and exported to shared volume"
 
@@ -132,15 +151,26 @@ USE master;
 IF NOT EXISTS (SELECT * FROM sys.symmetric_keys WHERE name = '##MS_DatabaseMasterKey##')
     CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'StrongPassword123!';
 
+-- Drop AG and endpoint first (they may lock certificates from previous runs)
+IF EXISTS (SELECT * FROM sys.availability_groups WHERE name = '${AG_NAME}')
+    DROP AVAILABILITY GROUP ${AG_NAME};
+
+IF EXISTS (SELECT * FROM sys.endpoints WHERE name = 'Hadr_endpoint')
+    DROP ENDPOINT Hadr_endpoint;
+
 IF EXISTS (SELECT * FROM sys.certificates WHERE name = 'sqlserver2_cert')
     DROP CERTIFICATE sqlserver2_cert;
 
 CREATE CERTIFICATE sqlserver2_cert
-WITH SUBJECT = 'Certificate for sqlserver2 endpoint',
-     EXPIRY_DATE = '2030-12-31';
+WITH SUBJECT = 'Certificate for sqlserver2 endpoint';
 
-BACKUP CERTIFICATE sqlserver2_cert TO FILE = '/var/opt/ag-certs/sqlserver2_cert.cer';
-" > /dev/null
+BACKUP CERTIFICATE sqlserver2_cert 
+TO FILE = '/var/opt/ag-certs/sqlserver2_cert.cer'
+WITH PRIVATE KEY (
+    FILE = '/var/opt/ag-certs/sqlserver2_cert.pvk',
+    ENCRYPTION BY PASSWORD = 'CertPassword123!'
+);
+"
 
 log_info "Secondary certificate created and exported to shared volume"
 
@@ -160,7 +190,7 @@ IF EXISTS (SELECT * FROM sys.certificates WHERE name = 'sqlserver2_cert')
 
 CREATE CERTIFICATE sqlserver2_cert
 FROM FILE = '/var/opt/ag-certs/sqlserver2_cert.cer';
-" > /dev/null
+"
 
 log_info "Imported sqlserver2 certificate on primary"
 
@@ -171,8 +201,8 @@ IF EXISTS (SELECT * FROM sys.certificates WHERE name = 'sqlserver1_cert')
     DROP CERTIFICATE sqlserver1_cert;
 
 CREATE CERTIFICATE sqlserver1_cert
-FROM FILE = '/var/opt/ag-certs/sqlserver_cert.cer';
-" > /dev/null
+FROM FILE = '/var/opt/ag-certs/sqlserver1_cert.cer';
+"
 
 log_info "Imported sqlserver1 certificate on secondary"
 
@@ -194,7 +224,7 @@ CREATE ENDPOINT Hadr_endpoint
         AUTHENTICATION = CERTIFICATE sqlserver1_cert,
         ROLE = ALL
     );
-" > /dev/null
+"
 
 log_info "Primary endpoint created on port 5022"
 
@@ -211,7 +241,7 @@ CREATE ENDPOINT Hadr_endpoint
         AUTHENTICATION = CERTIFICATE sqlserver2_cert,
         ROLE = ALL
     );
-" > /dev/null
+"
 
 log_info "Secondary endpoint created on port 5022"
 
@@ -235,17 +265,26 @@ FOR REPLICA ON
         ENDPOINT_URL = 'TCP://sqlserver1:5022',
         AVAILABILITY_MODE = SYNCHRONOUS_COMMIT,
         FAILOVER_MODE = MANUAL,
-        SEEDING_MODE = MANUAL,
-        SECONDARY_ROLE(ALLOW_CONNECTIONS = YES)
+        SEEDING_MODE = AUTOMATIC,
+        SECONDARY_ROLE (ALLOW_CONNECTIONS = ALL)
     ),
     'sqlserver2' WITH (
         ENDPOINT_URL = 'TCP://sqlserver2:5022',
         AVAILABILITY_MODE = SYNCHRONOUS_COMMIT,
         FAILOVER_MODE = MANUAL,
-        SEEDING_MODE = MANUAL,
-        SECONDARY_ROLE(ALLOW_CONNECTIONS = YES)
+        SEEDING_MODE = AUTOMATIC,
+        SECONDARY_ROLE (ALLOW_CONNECTIONS = ALL)
     );
-" > /dev/null
+
+ALTER AVAILABILITY GROUP ${AG_NAME} GRANT CREATE ANY DATABASE;
+"
+
+# Verify AG was created
+AG_COUNT=$(execute_sql "$PRIMARY_CONTAINER" "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.availability_groups WHERE name = '${AG_NAME}';" | tr -d ' ')
+if [ "$AG_COUNT" != "1" ]; then
+    log_error "Failed to create AG on primary."
+    exit 1
+fi
 
 log_info "Availability group '${AG_NAME}' created"
 
@@ -254,10 +293,20 @@ log_info "Availability group '${AG_NAME}' created"
 # ============================================================================
 log_step "Joining secondary replica to availability group..."
 
+# For CLUSTER_TYPE = NONE on Linux, must explicitly specify cluster type in JOIN
 execute_sql "$SECONDARY_CONTAINER" "
 USE master;
-ALTER AVAILABILITY GROUP ${AG_NAME} JOIN;
-" > /dev/null
+ALTER AVAILABILITY GROUP ${AG_NAME} JOIN WITH (CLUSTER_TYPE = NONE);
+
+ALTER AVAILABILITY GROUP ${AG_NAME} GRANT CREATE ANY DATABASE;
+"
+
+# Verify JOIN succeeded by checking if AG exists on secondary
+AG_COUNT=$(execute_sql "$SECONDARY_CONTAINER" "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.availability_groups WHERE name = '${AG_NAME}';" | tr -d ' ')
+if [ "$AG_COUNT" != "1" ]; then
+    log_error "Failed to join secondary to AG. AG not found in sys.availability_groups on secondary."
+    exit 1
+fi
 
 log_info "Secondary replica joined to ${AG_NAME}"
 
@@ -279,6 +328,9 @@ END
 
 CREATE DATABASE ${DB_NAME};
 ALTER DATABASE ${DB_NAME} SET RECOVERY FULL;
+
+-- Take initial full backup to enable transaction log
+BACKUP DATABASE ${DB_NAME} TO DISK = 'NUL';
 " > /dev/null
 
 log_info "Database ${DB_NAME} created with FULL recovery model"
@@ -304,53 +356,25 @@ INSERT INTO TestData (TestValue) VALUES
 log_info "Table created and seeded with 5 rows"
 
 # ============================================================================
-# STEP 9: Backup and Restore Database
+# STEP 9: Add Database to Availability Group  
 # ============================================================================
-log_step "Backing up database on primary..."
-
-execute_sql "$PRIMARY_CONTAINER" "
-BACKUP DATABASE ${DB_NAME} TO DISK = '/var/opt/ag-certs/${DB_NAME}_full.bak' WITH FORMAT, INIT;
-BACKUP LOG ${DB_NAME} TO DISK = '/var/opt/ag-certs/${DB_NAME}_log.trn' WITH FORMAT, INIT;
-" > /dev/null
-
-log_info "Full and log backups completed"
-
-# Wait for backup files
-sleep 2
-
-log_step "Restoring database on secondary..."
-
-execute_sql "$SECONDARY_CONTAINER" "
-USE master;
-IF DB_ID('${DB_NAME}') IS NOT NULL
-BEGIN
-    ALTER DATABASE ${DB_NAME} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-    DROP DATABASE ${DB_NAME};
-END
-
-RESTORE DATABASE ${DB_NAME} FROM DISK = '/var/opt/ag-certs/${DB_NAME}_full.bak' WITH NORECOVERY;
-RESTORE LOG ${DB_NAME} FROM DISK = '/var/opt/ag-certs/${DB_NAME}_log.trn' WITH NORECOVERY;
-" > /dev/null
-
-log_info "Database restored on secondary with NORECOVERY"
-
-# ============================================================================
-# STEP 10: Add Database to Availability Group
-# ============================================================================
+# NOTE: With SEEDING_MODE = AUTOMATIC, SQL Server handles backup/restore automatically
+# We just add the database to the AG and it will seed to the secondary
 log_step "Adding database to availability group..."
 
 execute_sql "$PRIMARY_CONTAINER" "
 USE master;
 ALTER AVAILABILITY GROUP ${AG_NAME} ADD DATABASE ${DB_NAME};
-" > /dev/null
+"
 
-log_info "Database added to AG on primary"
+log_info "Database added to AG on primary - automatic seeding in progress"
 
-# Wait for synchronization to start
-sleep 3
+# Wait for automatic seeding to complete (can take a few seconds)
+log_step "Waiting for automatic seeding to complete..."
+sleep 10
 
 # ============================================================================
-# STEP 11: Verify AG Status
+# STEP 10: Verify AG Status
 # ============================================================================
 log_step "Verifying availability group status..."
 
@@ -363,7 +387,7 @@ SELECT
     ar.replica_server_name AS Replica,
     rs.role_desc AS Role,
     rs.connected_state_desc AS Connection_State,
-    drs.database_name AS Database_Name,
+    DB_NAME(drs.database_id) AS Database_Name,
     drs.synchronization_state_desc AS Sync_State,
     drs.synchronization_health_desc AS Health
 FROM sys.availability_groups ag
@@ -371,7 +395,7 @@ JOIN sys.availability_replicas ar ON ag.group_id = ar.group_id
 JOIN sys.dm_hadr_availability_replica_states rs ON ar.replica_id = rs.replica_id
 LEFT JOIN sys.dm_hadr_database_replica_states drs ON ar.replica_id = drs.replica_id
 WHERE ag.name = '${AG_NAME}'
-ORDER BY ar.replica_server_name, drs.database_name;
+ORDER BY ar.replica_server_name, DB_NAME(drs.database_id);
 "
 echo ""
 
