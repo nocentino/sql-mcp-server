@@ -2,6 +2,9 @@
 
 set -e
 
+# Load passwords from .env if not already set in environment
+[ -f "$(dirname "$0")/.env" ] && set -a && source "$(dirname "$0")/.env" && set +a
+
 echo "Starting SQL MCP demo..."
 echo ""
 
@@ -11,7 +14,7 @@ echo ""
 echo "Waiting for SQL Server to be ready..."
 until docker compose exec -T sqlserver1 \
   /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
-  -P "${SA_PASSWORD}" -C -Q "SELECT 1" &>/dev/null; do
+  -P "${SA_PASSWORD}" -C -h -1 -Q "SET NOCOUNT ON; SELECT 'PROBEOK'" 2>/dev/null | grep -q '^PROBEOK'; do
   sleep 3
 done
 echo "  SQL Server ready"
