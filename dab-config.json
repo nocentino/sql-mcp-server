@@ -27,11 +27,20 @@
         "provider": "StaticWebApps"
       },
       "mode": "development"
+    },
+    "mcp": {
+      "enabled": true,
+      "path": "/mcp",
+      "dml-tools": {
+        "describe-entities": true,
+        "create-record": true,
+        "read-records": true,
+        "update-record": true,
+        "delete-record": true,
+        "execute-entity": true,
+        "aggregate-records": true
+      }
     }
-  },
-  "mcp": {
-    "enabled": true,
-    "path": "/mcp"
   },
   "entities": {
     "Products": {

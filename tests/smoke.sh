@@ -6,7 +6,7 @@
 set -e
 
 # Load passwords from .env if not already set in environment
-[ -f "$(dirname "$0")/../.env" ] && set -a && source "$(dirname "$0")/../.env" && set +a
+[ -f "$(dirname "${BASH_SOURCE[0]}")/../.env" ] && set -a && source "$(dirname "${BASH_SOURCE[0]}")/../.env" && set +a
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

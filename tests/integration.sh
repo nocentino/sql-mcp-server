@@ -6,7 +6,7 @@ DAB_URL="http://localhost:5001"
 DBA_URL="http://localhost:3001"
 
 # Load passwords from .env if not already set in environment
-[ -f "$(dirname "$0")/../.env" ] && set -a && source "$(dirname "$0")/../.env" && set +a
+[ -f "$(dirname "${BASH_SOURCE[0]}")/../.env" ] && set -a && source "$(dirname "${BASH_SOURCE[0]}")/../.env" && set +a
 
 SQL_PASS="${SA_PASSWORD:?SA_PASSWORD not set}"
 MONITOR_PASSWORD="${MONITOR_PASSWORD:?MONITOR_PASSWORD not set}"

@@ -2,6 +2,7 @@ services:
   # SQL Server 2025 (latest with advanced features)
   sqlserver1:
     image: mcr.microsoft.com/mssql/server:2025-latest
+    platform: linux/amd64
     container_name: sql-mcp-sqlserver1
     hostname: sqlserver1
     environment:
@@ -29,6 +30,7 @@ services:
   # Initialize database with sample data and DBA monitoring infrastructure
   sql-init:
     image: mcr.microsoft.com/mssql/server:2025-latest
+    platform: linux/amd64
     container_name: sql-mcp-init
     depends_on:
       sqlserver1:
@@ -49,6 +51,7 @@ services:
   # Data API Builder MCP Server — ProductsDB application access only
   dab-mcp:
     image: mcr.microsoft.com/azure-databases/data-api-builder:2.0.1-rc
+    platform: linux/amd64
     container_name: sql-mcp-dab
     hostname: dab-mcp
     environment:
@@ -73,6 +76,7 @@ services:
   # Second SQL Server 2025 instance — used for multi-instance testing
   sqlserver2:
     image: mcr.microsoft.com/mssql/server:2025-latest
+    platform: linux/amd64
     container_name: sql-mcp-sqlserver2
     hostname: sqlserver2
     environment:
@@ -98,6 +102,7 @@ services:
   # Create dba_monitor on sqlserver2 (mirrors the account on sqlserver1)
   sql-init-sqlserver2:
     image: mcr.microsoft.com/mssql/server:2025-latest
+    platform: linux/amd64
     container_name: sql-mcp-init-sqlserver2
     depends_on:
       sqlserver2:
