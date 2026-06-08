@@ -3,16 +3,16 @@
 ## 1. Start everything
 
 ```bash
-docker compose up --build -d
+./start.sh
 ```
 
-Wait ~60 seconds for SQL Server to initialize. Check status:
+This builds the `sql-mcp-server` image if needed, starts all containers, and waits until SQL Server, DAB, and the MCP server are all healthy. Check status:
 
 ```bash
 docker compose ps
 ```
 
-All three services should show `healthy` or `running`.
+The two SQL Server containers and the two MCP server containers should show `healthy`. The two init containers (`sql-mcp-init`, `sql-mcp-init-sqlserver2`) will show `Exited (0)` — that is expected; they seed the database once and stop.
 
 ## 2. Verify endpoints
 
@@ -51,31 +51,27 @@ Run the same wait stats query across all SQL servers at once
 
 ## 4. Explore multi-instance monitoring
 
-Two SQL Server instances (`sqlserver` on port 1433, `sqlserver2` on port 1434) are started by default. The single `sql-dba` MCP server manages both:
+Two SQL Server instances are started by default: `sqlserver1` on port 1433, `sqlserver2` on port 1434. The single `sql-dba` MCP server manages both. Verify:
 
 ```bash
-# Verify both instances are healthy
 docker compose ps
-
-# Confirm sql-mcp-server registered both at startup
-docker logs sql-mcp-dba | grep 'Registered instances'
-# Expected: [db] Registered instances: default, sqlserver2
 ```
 
-Then in Copilot Chat:
+Then in Copilot Chat (agent mode):
+
 ```
 List all registered SQL Server instances
-Get server info for sqlserver2
-Check for top waits across all SQL servers
+Get server info for SqlServer2
+Check wait stats on both SQL Server instances and summarize any concerns
 ```
 
-## 4. Run the test suite
+## 5. Run the test suite
 
 ```bash
-./test.sh
+./tests/integration.sh
 ```
 
-## 5. Stop
+## 6. Stop
 
 ```bash
 docker compose down        # keep data

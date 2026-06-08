@@ -36,7 +36,7 @@ cd sql-mcp-server
 cp .env.example .env          # set your passwords in .env
 
 # 2. Start everything
-docker compose up --build -d  # first run: ~2-3 min to pull + seed the DB
+./start.sh                    # builds images, starts containers, waits for healthy
 
 # 3. Verify
 docker compose ps
@@ -60,7 +60,7 @@ curl http://localhost:5001/health   # DAB
 ./scripts/ag/setup-ag.sh    # certificate auth, sync replication, TestDB
 ```
 
-See the [demos/](demos/) folder for six scripted walkthroughs. For Always On AG setup details, see the [Optional: Configure Always On Availability Group](#optional-configure-always-on-availability-group) section.
+See the [demos/](demos/) folder for scripted walkthroughs. The `demos/1-demo.sh` through `demos/6-demo.sh` scripts cover architecture, MCP wiring, blocking, query performance, fan-out queries, and Always On AG diagnostics. The `demos/de-1-demo.sh` through `demos/de-4-demo.sh` scripts are the complete Data Exposed episode walkthroughs (startup → MCP config → sql-dba DBA scenarios → products-db DAB scenarios). For Always On AG setup details, see the [Optional: Configure Always On Availability Group](#optional-configure-always-on-availability-group) section.
 
 ## Architecture
 
@@ -412,8 +412,9 @@ curl -X POST http://localhost:5001/graphql \
 If you want to poke at the database directly during testing:
 
 ```bash
+source .env
 docker compose exec sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost -U sa -P 'S0methingS@Str0ng!' -C -d ProductsDB \
+  -S localhost -U sa -P "${SA_PASSWORD}" -C -d ProductsDB \
   -Q "SELECT TOP 5 ProductName, UnitPrice FROM Products"
 ```
 
@@ -482,7 +483,9 @@ docker compose down -v    # stop and delete all data
 │   │   └── safety.ts            # Query allowlist (SELECT / WITH / DECLARE only)
 │   ├── Dockerfile
 │   └── package.json
-├── demos/                       # walkthrough demo scripts (1–6)
+├── demos/                       # walkthrough demo scripts
+│   ├── 1-demo.sh … 6-demo.sh   # architecture, wiring, blocking, perf, fan-out, AG
+│   └── de-1-demo.sh … de-4-demo.sh  # Data Exposed episode: full end-to-end walkthrough
 ├── examples/                    # agent-generated health reports (baseline → workload → AG setup → heavy load)
 ├── scripts/
 │   ├── ag/
@@ -587,7 +590,7 @@ The code is at [github.com/nocentino/sql-mcp-server](https://github.com/nocentin
 
 - **`dba_monitor` permissions** — created with `VIEW SERVER STATE` only. No stored procedures or views on the monitored server. All T-SQL lives inside the MCP server's tool definitions.
 - **Adding a new instance** — add an entry to the `INSTANCES` array in `.env` and restart `sql-mcp-server`. No code changes needed.
-- **SA password** — the default is `S0methingS@Str0ng!`. Change it in `.env` before use.
+- **SA password** — set in `.env` (see `.env.example` for the required variables). Never committed to git — `.gitignore` covers it.
 - **Regenerating `dab-config.json`** — if you change the schema, run `./scripts/dab/generate-dab-config.sh`.
 
 ## Acknowledgements
