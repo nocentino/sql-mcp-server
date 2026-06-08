@@ -1,4 +1,7 @@
 #!/bin/bash
+# Load passwords from .env
+source "${BASH_SOURCE[0]%/*}/../.env"
+
 ############################################################################################################
 # 4. Copilot as Your DBA — Live Diagnostics Against SQL Server 2025
 #    Each scenario starts with a natural-language question in Copilot Chat
@@ -28,7 +31,7 @@
 
 # Terminal 1 — Connection A: holds an exclusive lock for 5 minutes, then rolls back
 docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
-    -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
+    -S localhost -U sa -P "${SA_PASSWORD}" -C \
     -d ProductsDB \
     -Q "BEGIN TRANSACTION;
         UPDATE dbo.Products SET UnitPrice = UnitPrice * 1.01 WHERE Category = 'Electronics';
@@ -42,7 +45,7 @@ docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
 ############################################################################################################
 
 docker exec -it sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
-    -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
+    -S localhost -U sa -P "${SA_PASSWORD}" -C \
     -d ProductsDB \
     -Q "SELECT ProductID, ProductName, UnitPrice FROM dbo.Products WHERE Category = 'Electronics';"
 
@@ -72,7 +75,7 @@ curl -s "http://localhost:5001/api/Products?\$filter=Category%20eq%20'Electronic
 ############################################################################################################
 
 docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
-    -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
+    -S localhost -U sa -P "${SA_PASSWORD}" -C \
     -Q "KILL <spid_from_blocking_chain>"
 
 
@@ -95,7 +98,7 @@ docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
 ############################################################################################################
 
 docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
-    -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
+    -S localhost -U sa -P "${SA_PASSWORD}" -C \
     -d ProductsDB \
     -Q "DECLARE @i INT = 0;
         WHILE @i < 50

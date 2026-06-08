@@ -239,7 +239,8 @@ curl -s -X POST http://localhost:3001/mcp \
         "query":"SELECT @@SERVERNAME AS server_name, @@VERSION AS version"
       }
     }
-  }'
+  }' \
+  | grep '^data: ' | sed 's/^data: //' | jq '.result.content[0].text // .error'
 
 # Both instances return their @@SERVERNAME in one call
 

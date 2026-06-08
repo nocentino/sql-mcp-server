@@ -1,4 +1,7 @@
 #!/bin/bash
+# Load passwords from .env
+source "${BASH_SOURCE[0]%/*}/../.env"
+
 ############################################################################################################
 # 1. The Architecture — Your SQL Server, Talking to an AI Agent
 #    Model Context Protocol (MCP) lets GitHub Copilot call your own servers as tools.
@@ -46,7 +49,7 @@
 ############################################################################################################
 
 # Open the project root in VS Code
-code /Users/aen/Desktop/sql-mcp
+code .
 
 
 ############################################################################################################
@@ -99,7 +102,7 @@ curl http://localhost:5001/health
 ############################################################################################################
 
 docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
-    -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
+    -S localhost -U sa -P "${SA_PASSWORD}" -C \
     -Q "SELECT @@VERSION"
 
 
@@ -108,5 +111,5 @@ docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
 ############################################################################################################
 
 docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
-    -S localhost -U sa -P 'S0methingS@Str0ng!' -C \
+    -S localhost -U sa -P "${SA_PASSWORD}" -C \
     -Q "SELECT name, state_desc, recovery_model_desc FROM sys.databases ORDER BY name"

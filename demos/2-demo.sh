@@ -55,7 +55,8 @@ curl -s -X POST http://localhost:3001/mcp \
             "capabilities":    {},
             "clientInfo":      { "name": "curl-test", "version": "1" }
           }
-        }'
+        }' \
+    | grep '^data: ' | sed 's/^data: //' | jq .
 
 
 ############################################################################################################
@@ -82,7 +83,8 @@ curl -s -X POST http://localhost:5001/mcp \
             "capabilities":    {},
             "clientInfo":      { "name": "curl-test", "version": "1" }
           }
-        }'
+        }' \
+    | grep '^data: ' | sed 's/^data: //' | jq .
 
 
 ############################################################################################################
