@@ -67,9 +67,9 @@ Data is synchronized and queryable on both replicas.
 10. `verify-ag.sql` - Comprehensive status verification script
 
 ## Connection Info
-- **SA Password**: S0methingS@Str0ng!
-- **Master Key Password**: S0methingS@Str0ng!AG
-- **Primary Connection**: sqlserver:1433
+- **SA Password**: set in `.env` (see `.env.example`)
+- **Master Key Password**: `S0methingS@Str0ng!AG` (used only during AG certificate setup)
+- **Primary Connection**: sqlserver1:1433
 - **Secondary Connection**: sqlserver2:1434 (read-only)
 
 ## Key Learnings
@@ -81,17 +81,20 @@ Data is synchronized and queryable on both replicas.
 
 ## Verification Commands
 ```bash
+# Source passwords from .env first
+source .env
+
 # Check AG status on primary
-docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'S0methingS@Str0ng!' -C -i /tmp/verify-ag.sql -W
+docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${SA_PASSWORD}" -C -i /tmp/verify-ag.sql -W
 
 # Check AG status on secondary
-docker exec sql-mcp-sqlserver2 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'S0methingS@Str0ng!' -C -i /tmp/verify-ag.sql -W
+docker exec sql-mcp-sqlserver2 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${SA_PASSWORD}" -C -i /tmp/verify-ag.sql -W
 
 # Query data on primary
-docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'S0methingS@Str0ng!' -C -Q "SELECT * FROM TestDB.dbo.Orders;" -W
+docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "SELECT * FROM TestDB.dbo.Orders;" -W
 
 # Query data on secondary (read-only)
-docker exec sql-mcp-sqlserver2 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'S0methingS@Str0ng!' -C -Q "SELECT * FROM TestDB.dbo.Orders;" -W
+docker exec sql-mcp-sqlserver2 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "SELECT * FROM TestDB.dbo.Orders;" -W
 ```
 
 ## Next Steps

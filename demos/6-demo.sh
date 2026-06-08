@@ -38,10 +38,8 @@
 # What changed in the codebase
 ############################################################################################################
 
-# NEW file: src/connectionManager.ts
-# Replaces the single global pool in db.ts with a named-pool map.
-# Loads instances from INSTANCES env var (JSON array) or falls back
-# to SQL_SERVER/SQL_USER/SQL_PASSWORD for backwards compatibility.
+# connectionManager.ts manages named connection pools.
+# Loads instances from the INSTANCES env var (JSON array) at startup.
 
 code sql-mcp-server/src/connectionManager.ts
 
@@ -62,10 +60,10 @@ code sql-mcp-server/src/connectionManager.ts
 ############################################################################################################
 # How a tool changes — before and after
 #
-# BEFORE (db.ts global pool):
+# BEFORE (single hardcoded pool — pre-connectionManager):
 #
 #   server.tool("get_server_info", "...", {}, async () => {
-#     const { rows } = await query("SELECT @@VERSION ...");
+#     const { rows } = await pool.request().query("SELECT @@VERSION ...");
 #     return ok(rows);
 #   });
 #
@@ -122,8 +120,8 @@ code docker-compose.yml
 #     ports:
 #       - "3001:3000"
 #
-# SQL_SERVER / SQL_USER / SQL_PASSWORD are no longer needed once INSTANCES is set,
-# but they still work as the "default" fallback if INSTANCES is absent.
+# SQL_SERVER / SQL_USER / SQL_PASSWORD environment variables are no longer used —
+# INSTANCES in .env is the only configuration needed.
 
 
 ############################################################################################################
