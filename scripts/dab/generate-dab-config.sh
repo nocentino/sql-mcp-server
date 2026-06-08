@@ -8,7 +8,7 @@ set -e
 echo "🔧 Generating Data API Builder configuration..."
 
 # Connection string
-CONNECTION_STRING="Server=localhost,1433;Database=ProductsDB;User ID=dab_app;Password=DabP@ss123!;TrustServerCertificate=true"
+CONNECTION_STRING="Server=localhost,1433;Database=ProductsDB;User ID=dab_app;Password=${DAB_PASSWORD:?DAB_PASSWORD not set};TrustServerCertificate=true"
 
 # Remove existing config if present
 if [ -f dab-config.json ]; then

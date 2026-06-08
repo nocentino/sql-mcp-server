@@ -6,7 +6,7 @@ services:
     hostname: sqlserver1
     environment:
       - ACCEPT_EULA=${ACCEPT_EULA:-Y}
-      - MSSQL_SA_PASSWORD=${SA_PASSWORD:-S0methingS@Str0ng!}
+      - MSSQL_SA_PASSWORD=${SA_PASSWORD}
       - MSSQL_PID=Developer
       - MSSQL_ENABLE_HADR=1
     ports:
@@ -17,7 +17,7 @@ services:
       - ag-backups:/var/opt/mssql/backup
       - ./scripts/ag/init-sqlserver1.sql:/docker-entrypoint-initdb.d/init-sqlserver1.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${SA_PASSWORD:-S0methingS@Str0ng!}\" -C -l 5 -t 5 -h -1 -Q \"SET NOCOUNT ON; SELECT 'PROBEOK'\" 2>/dev/null | grep -q '^PROBEOK$$'"]
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${SA_PASSWORD}\" -C -l 5 -t 5 -h -1 -Q \"SET NOCOUNT ON; SELECT 'PROBEOK'\" 2>/dev/null | grep -q '^PROBEOK$$'"]
       interval: 10s
       timeout: 10s
       retries: 10
@@ -40,7 +40,7 @@ services:
         echo 'Waiting for SQL Server to be ready...' &&
         sleep 10 &&
         echo 'Initializing ProductsDB and dba_monitor account...' &&
-        /opt/mssql-tools18/bin/sqlcmd -S sqlserver1 -U sa -P '${SA_PASSWORD:-S0methingS@Str0ng!}' -C -i /scripts/ag/init-sqlserver1.sql &&
+        /opt/mssql-tools18/bin/sqlcmd -S sqlserver1 -U sa -P '${SA_PASSWORD}' -C -i /scripts/ag/init-sqlserver1.sql &&
         echo 'All initialization complete!'
       "
     networks:
@@ -52,7 +52,7 @@ services:
     container_name: sql-mcp-dab
     hostname: dab-mcp
     environment:
-      - MSSQL_CONNECTION_STRING=Server=sqlserver1,1433;Database=${SQL_DATABASE:-ProductsDB};User ID=dab_app;Password=DabP@ss123!;Encrypt=false;TrustServerCertificate=true;
+      - MSSQL_CONNECTION_STRING=Server=sqlserver1,1433;Database=${SQL_DATABASE:-ProductsDB};User ID=dab_app;Password=${DAB_PASSWORD};Encrypt=false;TrustServerCertificate=true;
     ports:
       - "5001:5000"
     volumes:
@@ -77,7 +77,7 @@ services:
     hostname: sqlserver2
     environment:
       - ACCEPT_EULA=${ACCEPT_EULA:-Y}
-      - MSSQL_SA_PASSWORD=${SA_PASSWORD:-S0methingS@Str0ng!}
+      - MSSQL_SA_PASSWORD=${SA_PASSWORD}
       - MSSQL_PID=Developer
       - MSSQL_ENABLE_HADR=1
     ports:
@@ -86,7 +86,7 @@ services:
       - ag-certs:/var/opt/ag-certs
       - ag-backups:/var/opt/mssql/backup
     healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${SA_PASSWORD:-S0methingS@Str0ng!}\" -C -l 5 -t 5 -h -1 -Q \"SET NOCOUNT ON; SELECT 'PROBEOK'\" 2>/dev/null | grep -q '^PROBEOK$$'"]
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${SA_PASSWORD}\" -C -l 5 -t 5 -h -1 -Q \"SET NOCOUNT ON; SELECT 'PROBEOK'\" 2>/dev/null | grep -q '^PROBEOK$$'"]
       interval: 10s
       timeout: 10s
       retries: 10
@@ -107,7 +107,7 @@ services:
     command: >
       /bin/bash -c "
         echo 'Creating dba_monitor on sqlserver2...' &&
-        /opt/mssql-tools18/bin/sqlcmd -S sqlserver2 -U sa -P '${SA_PASSWORD:-S0methingS@Str0ng!}' -C -i /scripts/ag/init-sqlserver2.sql &&
+        /opt/mssql-tools18/bin/sqlcmd -S sqlserver2 -U sa -P '${SA_PASSWORD}' -C -i /scripts/ag/init-sqlserver2.sql &&
         echo 'sqlserver2 initialization complete!'
       "
     networks:

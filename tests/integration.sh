@@ -4,7 +4,12 @@
 
 DAB_URL="http://localhost:5001"
 DBA_URL="http://localhost:3001"
-SQL_PASS="${SA_PASSWORD:-S0methingS@Str0ng!}"
+
+# Load passwords from .env if not already set in environment
+[ -f "$(dirname "$0")/../.env" ] && set -a && source "$(dirname "$0")/../.env" && set +a
+
+SQL_PASS="${SA_PASSWORD:?SA_PASSWORD not set}"
+MONITOR_PASSWORD="${MONITOR_PASSWORD:?MONITOR_PASSWORD not set}"
 
 PASS=0; FAIL=0
 ok()  { echo "  PASS  $1"; PASS=$((PASS+1)); }
@@ -52,7 +57,7 @@ RESULT=$(docker compose exec -T sqlserver1 \
 [[ "$RESULT" =~ ^[0-9]+$ ]] && ok "ProductsDB reachable ($RESULT products)" || fail "SQL Server connection"
 
 DBA_RESULT=$(docker compose exec -T sqlserver1 \
-  /opt/mssql-tools18/bin/sqlcmd -S localhost -U dba_monitor -P "MonitorP@ss123!" -C \
+  /opt/mssql-tools18/bin/sqlcmd -S localhost -U dba_monitor -P "${MONITOR_PASSWORD}" -C \
   -Q "SELECT COUNT(*) FROM sys.dm_exec_sessions" -h -1 2>/dev/null | head -1 | xargs)
 [[ "$DBA_RESULT" =~ ^[0-9]+$ ]] && ok "dba_monitor can query DMVs ($DBA_RESULT sessions)" || fail "dba_monitor DMV access"
 

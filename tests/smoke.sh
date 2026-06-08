@@ -5,6 +5,9 @@
 
 set -e
 
+# Load passwords from .env if not already set in environment
+[ -f "$(dirname "$0")/../.env" ] && set -a && source "$(dirname "$0")/../.env" && set +a
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -26,7 +29,7 @@ function sql_test() {
   
   local result
   result=$(docker compose exec -T sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
-    -S localhost -U dba_monitor -P 'MonitorP@ss123!' -C -d master \
+    -S localhost -U dba_monitor -P "${MONITOR_PASSWORD:?MONITOR_PASSWORD not set}" -C -d master \
     -Q "${query}" -h -1 -W 2>&1)
   
   if [ $? -ne 0 ]; then
@@ -64,7 +67,7 @@ function test_category() {
 # Verify dba_monitor can connect
 echo "Checking dba_monitor connection..."
 if ! docker compose exec -T sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost -U dba_monitor -P 'MonitorP@ss123!' -C -d master \
+  -S localhost -U dba_monitor -P "${MONITOR_PASSWORD:?MONITOR_PASSWORD not set}" -C -d master \
   -Q "SELECT @@VERSION" -h -1 > /dev/null 2>&1; then
   echo -e "${RED}ERROR: Cannot connect as dba_monitor${NC}"
   exit 1
