@@ -21,7 +21,7 @@ source .env
 # What is DAB?
 #
 #   Data API Builder reads a config file (dab-config.json) and exposes each
-#   database table as:
+#   database tables/stored procs/views as:
 #     - a REST endpoint  (/api/<Entity>)
 #     - a GraphQL field  (/graphql)
 #     - an MCP tool      (/mcp)
@@ -86,10 +86,6 @@ curl -s "http://localhost:5001/api/Products?\$orderby=UnitsInStock%20asc&\$first
 #     - Copilot iterating over the list result and issuing individual PATCH calls
 #     - No SQL written, no curl — pure natural language → MCP → REST → SQL UPDATE
 ############################################################################################################
-
-# Verify the prices were actually updated in the database
-curl -s "http://localhost:5001/api/Products?\$filter=Category%20eq%20'Furniture'" \
-    | jq '[.value[] | {ProductName, UnitPrice}]'
 
 
 ############################################################################################################

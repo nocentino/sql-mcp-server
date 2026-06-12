@@ -62,13 +62,14 @@
 
 
 ############################################################################################################
-# Four services in docker-compose.yml:
-#   sqlserver1      — SQL Server 2025 Developer Edition
+# Five services in docker-compose.yml:
+#   sqlserver1      — SQL Server 2025 Developer Edition with sample ProductsDB (primary monitoring target)
+#   sqlserver2      — SQL Server 2025 Developer Edition (monitoring target)
 #   sql-init        — one-shot container: seeds ProductsDB, creates dba_monitor + dab_app logins
 #   sql-mcp-server  — the custom DBA MCP server (Node.js / TypeScript)
 #   dab-mcp         — Data API Builder MCP server (Microsoft)
 #
-# Verify all four containers are healthy
+# Verify all five containers are healthy
 # sql-init and sql-init-sqlserver2 will show Exited (0) — that's expected
 ############################################################################################################
 

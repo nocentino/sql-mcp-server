@@ -46,52 +46,6 @@ code "$HOME/Library/Application Support/Code/User/mcp.json"
 
 
 ############################################################################################################
-# Ask the server what tools it exposes — the full tool catalogue
-############################################################################################################
-
-SESSION=$(curl -si -X POST http://localhost:3001/mcp \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/json, text/event-stream" \
-    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"demo","version":"1"}}}' \
-    | grep -i "mcp-session-id" | awk '{print $2}' | tr -d '\r')
-
-curl -s -X POST http://localhost:3001/mcp \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/json, text/event-stream" \
-    -H "Mcp-Session-Id: $SESSION" \
-    -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-    | grep '^data: ' | sed 's/^data: //' \
-    | jq '[.result.tools[] | {name, description: .description[:80]}]'
-
-# 28 tools — covering: sessions, blocking, wait stats, query store, indexes,
-#             memory, tempdb, I/O, jobs, AG health, and more
-
-
-
-
-############################################################################################################
-# Same for the DAB products-db server
-############################################################################################################
-
-DAB_SESSION=$(curl -si -X POST http://localhost:5001/mcp \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/json, text/event-stream" \
-    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"demo","version":"1"}}}' \
-    | grep -i "mcp-session-id" | awk '{print $2}' | tr -d '\r')
-
-curl -s -X POST http://localhost:5001/mcp \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/json, text/event-stream" \
-    -H "Mcp-Session-Id: $DAB_SESSION" \
-    -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-    | grep '^data: ' | sed 's/^data: //' \
-    | jq '[.result.tools[] | {name, description: .description[:80]}]'
-
-# DAB exposes one tool per entity: Products, Categories, Orders, OrderDetails
-# Each tool supports list, get-by-pk, create, update, delete — full CRUD via MCP
-
-
-############################################################################################################
 # In VS Code — open agent mode and verify both servers show as connected
 #
 #   1. Click the Copilot icon → open Chat

@@ -100,21 +100,3 @@ docker exec -it sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
 #     - SOS_SCHEDULER_YIELD = CPU pressure, PAGEIOLATCH_* = I/O pressure (neither expected here)
 ############################################################################################################
 
-
-############################################################################################################
-# SCENARIO 4 — Top queries by CPU (BONUS if time allows)
-#
-# The blocking chain workload we ran earlier has already populated the plan cache.
-# Ask Copilot to surface the most expensive queries since server start.
-############################################################################################################
-
-#   Ask Copilot:
-#
-#     "What are the top 5 most expensive queries on SqlServer1 since the server started? Rank by CPU time, show me the query text, and flag anything that looks like a parameter sniffing or missing index candidate."
-#
-#   Tools invoked: get_top_queries, get_plan_cache_pollution
-#   Watch for:
-#     - The UPDATE + WAITFOR from the blocking demo appearing as a high-CPU query
-#     - execution_count vs total_cpu_ms ratio — high CPU per execution = expensive plan
-#     - plan_count > 1 for the same query_hash = parameter sniffing candidate
-############################################################################################################
