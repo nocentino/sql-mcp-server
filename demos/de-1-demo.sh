@@ -52,31 +52,6 @@
 ############################################################################################################
 
 
-############################################################################################################
-# Review the project structure
-############################################################################################################
-
-ls -la
-
-
-############################################################################################################
-# Four services in docker-compose.yml:
-#   sqlserver1      — SQL Server 2025 Developer Edition
-#   sql-init        — one-shot container: seeds ProductsDB, creates dba_monitor + dab_app logins
-#   sql-mcp-server  — the custom DBA MCP server (Node.js / TypeScript)
-#   dab-mcp         — Data API Builder MCP server (Microsoft)
-############################################################################################################
-
-code docker-compose.yml
-
-
-############################################################################################################
-# Credentials live in .env — never committed to git (.gitignore covers it)
-# .env.example shows the shape; copy it and fill in your passwords
-############################################################################################################
-
-code .env
-
 
 ############################################################################################################
 # Start the full environment
@@ -87,6 +62,12 @@ code .env
 
 
 ############################################################################################################
+# Four services in docker-compose.yml:
+#   sqlserver1      — SQL Server 2025 Developer Edition
+#   sql-init        — one-shot container: seeds ProductsDB, creates dba_monitor + dab_app logins
+#   sql-mcp-server  — the custom DBA MCP server (Node.js / TypeScript)
+#   dab-mcp         — Data API Builder MCP server (Microsoft)
+#
 # Verify all four containers are healthy
 # sql-init and sql-init-sqlserver2 will show Exited (0) — that's expected
 ############################################################################################################
