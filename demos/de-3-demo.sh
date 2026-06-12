@@ -50,6 +50,8 @@ docker exec -it sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
 # Step 2: Start a blocked reader in another terminal
 ############################################################################################################
 
+source .env
+
 docker exec -it sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
     -S localhost -U sa -P "${SA_PASSWORD}" -C \
     -d ProductsDB \
@@ -74,9 +76,11 @@ docker exec -it sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
 # Replace <spid> with the SPID Copilot identified as the head blocker
 ############################################################################################################
 
-docker exec sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
+source .env
+
+docker exec -it sql-mcp-sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
     -S localhost -U sa -P "${SA_PASSWORD}" -C \
-    -Q "KILL <spid>"
+    -Q "KILL 52"
 
 
 ############################################################################################################

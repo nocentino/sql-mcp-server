@@ -44,30 +44,6 @@ code "$HOME/Library/Application Support/Code/User/mcp.json"
 ############################################################################################################
 
 
-############################################################################################################
-# Verify the sql-dba MCP server with a raw JSON-RPC initialize call
-# This is the exact handshake VS Code sends when agent mode starts
-############################################################################################################
-
-curl -si -X POST http://localhost:3001/mcp \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/json, text/event-stream" \
-    -d '{
-          "jsonrpc": "2.0",
-          "id":      1,
-          "method":  "initialize",
-          "params":  {
-            "protocolVersion": "2025-06-18",
-            "capabilities":    {},
-            "clientInfo":      { "name": "demo", "version": "1" }
-          }
-        }'
-
-# Look for in the response:
-#   Mcp-Session-Id   — session token (subsequent requests use this header)
-#   protocolVersion  — negotiated version
-#   serverInfo.name  — "sql-server-dba"
-
 
 ############################################################################################################
 # Ask the server what tools it exposes — the full tool catalogue
@@ -89,6 +65,8 @@ curl -s -X POST http://localhost:3001/mcp \
 
 # 28 tools — covering: sessions, blocking, wait stats, query store, indexes,
 #             memory, tempdb, I/O, jobs, AG health, and more
+
+
 
 
 ############################################################################################################
@@ -123,6 +101,13 @@ curl -s -X POST http://localhost:5001/mcp \
 #        products-db    → entity tools (Products, Categories, Orders, OrderDetails)
 #
 ############################################################################################################
+
+
+############################################################################################################
+# Open the source file for the tools implementation, inspect how the SQL is generated and results are returned
+# Scroll down to get_active_sessions to see a simple example of a tool implementation
+############################################################################################################
+code ./sql-mcp-server/src/tools.ts
 
 
 ############################################################################################################

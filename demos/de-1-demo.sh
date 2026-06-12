@@ -40,8 +40,8 @@
 #   │  SQL Server     │          │  SQL Server     │
 #   │  2025 Developer │          │  2025 Developer │
 #   │  ProductsDB     │          │  (monitoring    │
-#   └─────────────────┘          │   target)       │
-#                                └─────────────────┘
+#   │                 │          │   target)       │
+#   └─────────────────┘          └─────────────────┘
 #
 #  KEY POINTS:
 #    - Copilot never touches SQL Server directly

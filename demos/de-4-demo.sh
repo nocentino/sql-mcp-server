@@ -75,8 +75,7 @@ curl -s "http://localhost:5001/api/Products?\$orderby=UnitsInStock%20asc&\$first
 #
 #   Ask Copilot:
 #
-#     "We're running a summer sale. Apply a 15% discount to all Furniture products.
-#      Show me the before and after prices."
+#     "We're running a summer sale. Apply a 15% discount to all Furniture products. Show me the before and after prices."
 #
 #   Tools invoked:
 #     1. products-db list (filter Category = Furniture) → get current prices
@@ -98,9 +97,7 @@ curl -s "http://localhost:5001/api/Products?\$filter=Category%20eq%20'Furniture'
 #
 #   Ask Copilot:
 #
-#     "A customer wants to reorder everything from Order 1.
-#      What products were in that order, what are the current prices,
-#      and is everything still in stock?"
+#     "A customer wants to reorder everything from Order 1. What products were in that order, what are the current prices, and is everything still in stock?"
 #
 #   Tools invoked: products-db (OrderDetails + Products — two entities in one turn)
 #   Watch for:
@@ -121,6 +118,7 @@ curl -s "http://localhost:5001/api/Products?\$filter=Category%20eq%20'Furniture'
 #   6. Passwords live in .env, never in git
 #
 #   Next steps:
+#     - Grab the code - https://github.com/nocentino/sql-mcp-server
 #     - Add your own SQL Server instances to INSTANCES in .env
 #     - Extend dab-config.json to expose your own tables
 #     - Read the docs:  docs/QUICKSTART.md
