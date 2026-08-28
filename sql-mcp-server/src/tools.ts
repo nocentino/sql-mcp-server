@@ -2075,4 +2075,174 @@ export function registerTools(server: McpServer): void {
       }
     }
   );
+
+  // ============================================================
+  // get_security_config_drift
+  // Surface-area settings vs. a hardening baseline. Baseline lives in the
+  // tool so results are consistent; the skill decides what to do about drift.
+  // ============================================================
+  server.tool(
+    "get_security_config_drift",
+    "Compare security-relevant sp_configure settings against a hardening baseline " +
+      "(xp_cmdshell, Ole Automation, CLR, Ad Hoc Distributed Queries, remote access, " +
+      "cross db ownership chaining). Returns each setting, its current value, the " +
+      "baseline value, and a compliant flag. Use for security reviews and audits.",
+    { ...instanceParam },
+    async ({ instance_name }) => {
+      try {
+        const { rows } = await queryInstance(instance_name, `
+          WITH baseline AS (
+            SELECT * FROM (VALUES
+              (N'xp_cmdshell',                    0),
+              (N'Ole Automation Procedures',      0),
+              (N'clr enabled',                    0),
+              (N'Ad Hoc Distributed Queries',     0),
+              (N'remote access',                  0),
+              (N'cross db ownership chaining',    0),
+              (N'Database Mail XPs',              0)
+            ) AS b(name, required_value)
+          )
+          SELECT
+            c.name,
+            CAST(c.value_in_use AS INT)          AS current_value,
+            b.required_value,
+            CASE WHEN CAST(c.value_in_use AS INT) = b.required_value
+                 THEN 1 ELSE 0 END               AS compliant
+          FROM sys.configurations c
+          JOIN baseline b ON b.name = c.name
+          ORDER BY compliant ASC, c.name;
+        `);
+        return ok({ config_drift: rows });
+      } catch (e: unknown) {
+        return err(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  // ============================================================
+  // get_sysadmin_members
+  // Privileged server-role membership with the metadata the skill's rules need:
+  // login type, disabled flag, create/modify dates (recent adds are findings).
+  // ============================================================
+  server.tool(
+    "get_sysadmin_members",
+    "List members of privileged server roles (sysadmin, securityadmin, serveradmin) " +
+      "with login type, disabled state, and create/modify dates. Flags enabled sa and " +
+      "recently modified logins. Use for privileged-access reviews.",
+    { ...instanceParam },
+    async ({ instance_name }) => {
+      try {
+        const { rows } = await queryInstance(instance_name, `
+          SELECT
+            r.name                                   AS role_name,
+            m.name                                   AS member_name,
+            m.type_desc                              AS login_type,
+            m.is_disabled,
+            m.create_date,
+            m.modify_date,
+            CASE WHEN m.name = N'sa' AND m.is_disabled = 0 THEN 1 ELSE 0 END AS sa_enabled_flag,
+            CASE WHEN m.modify_date > DATEADD(DAY, -30, SYSUTCDATETIME())
+                 THEN 1 ELSE 0 END                   AS recently_modified_flag
+          FROM sys.server_role_members rm
+          JOIN sys.server_principals r ON r.principal_id = rm.role_principal_id
+          JOIN sys.server_principals m ON m.principal_id = rm.member_principal_id
+          WHERE r.name IN (N'sysadmin', N'securityadmin', N'serveradmin')
+          ORDER BY r.name, m.name;
+        `);
+        return ok({ privileged_members: rows });
+      } catch (e: unknown) {
+        return err(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  // ============================================================
+  // get_failed_logins
+  // Failed logins from the current error log, aggregated by login + client so the
+  // skill can spot spray patterns. Requires GRANT EXECUTE ON sys.sp_readerrorlog
+  // (applied in scripts/ag/init-sqlserver*.sql). Parsed with LIKE/SUBSTRING —
+  // resilient enough for error-log text.
+  // ============================================================
+  server.tool(
+    "get_failed_logins",
+    "Failed login attempts from the SQL Server error log, aggregated by login name " +
+      "and client address with first/last seen and attempt counts. Use to detect " +
+      "password-spray or brute-force patterns and privileged-login failures.",
+    {
+      ...instanceParam,
+      hours: z
+        .number()
+        .optional()
+        .default(24)
+        .describe("Look-back window in hours (default 24)"),
+    },
+    async ({ instance_name, hours }) => {
+      try {
+        const { rows } = await queryInstance(instance_name, `
+          DECLARE @log TABLE (LogDate DATETIME, ProcessInfo NVARCHAR(50), LogText NVARCHAR(MAX));
+          INSERT INTO @log EXEC sys.sp_readerrorlog 0, 1, N'Login failed';
+          SELECT
+            COALESCE(NULLIF(SUBSTRING(LogText,
+              NULLIF(CHARINDEX(N'user ''', LogText), 0) + 6,
+              NULLIF(CHARINDEX(N'''', LogText, CHARINDEX(N'user ''', LogText) + 6), 0)
+                - (CHARINDEX(N'user ''', LogText) + 6)), N''), N'<unparsed>') AS login_name,
+            COALESCE(NULLIF(SUBSTRING(LogText,
+              NULLIF(CHARINDEX(N'CLIENT: ', LogText), 0) + 8, 45), N''), N'<unknown>') AS client,
+            COUNT(*)      AS attempts,
+            MIN(LogDate)  AS first_seen,
+            MAX(LogDate)  AS last_seen
+          FROM @log
+          WHERE LogDate > DATEADD(HOUR, -${Math.max(1, Math.floor(hours))}, GETDATE())
+          GROUP BY
+            COALESCE(NULLIF(SUBSTRING(LogText,
+              NULLIF(CHARINDEX(N'user ''', LogText), 0) + 6,
+              NULLIF(CHARINDEX(N'''', LogText, CHARINDEX(N'user ''', LogText) + 6), 0)
+                - (CHARINDEX(N'user ''', LogText) + 6)), N''), N'<unparsed>'),
+            COALESCE(NULLIF(SUBSTRING(LogText,
+              NULLIF(CHARINDEX(N'CLIENT: ', LogText), 0) + 8, 45), N''), N'<unknown>')
+          ORDER BY attempts DESC;
+        `);
+        return ok({ failed_logins: rows, window_hours: hours });
+      } catch (e: unknown) {
+        return err(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  // ============================================================
+  // get_orphaned_users
+  // Database users with no matching server login, across all online user DBs.
+  // Dynamic SQL (no sp_MSforeachdb) for container-friendliness.
+  // ============================================================
+  server.tool(
+    "get_orphaned_users",
+    "Find database users whose SID has no matching server login (orphaned users), " +
+      "across all online user databases. Orphans indicate restore/migration drift " +
+      "and block clean restores. Use in security reviews and pre/post-migration checks.",
+    { ...instanceParam },
+    async ({ instance_name }) => {
+      try {
+        const { rows } = await queryInstance(instance_name, `
+          DECLARE @sql NVARCHAR(MAX) = N'';
+          SELECT @sql = @sql + N'
+            SELECT N''' + name + N''' AS database_name, dp.name AS user_name,
+                   dp.type_desc, dp.create_date
+            FROM ' + QUOTENAME(name) + N'.sys.database_principals dp
+            LEFT JOIN sys.server_principals sp ON sp.sid = dp.sid
+            WHERE dp.type IN (''S'',''U'',''G'')
+              AND dp.authentication_type_desc = ''INSTANCE''
+              AND sp.sid IS NULL
+              AND dp.name NOT IN (''guest'',''dbo'',''INFORMATION_SCHEMA'',''sys'')
+            UNION ALL'
+          FROM sys.databases
+          WHERE state_desc = N'ONLINE' AND database_id > 4;
+          IF LEN(@sql) > 9 SET @sql = LEFT(@sql, LEN(@sql) - 9);  -- trim trailing UNION ALL
+          IF LEN(@sql) > 0 EXEC sp_executesql @sql;
+        `);
+        return ok({ orphaned_users: rows });
+      } catch (e: unknown) {
+        return err(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
 }
