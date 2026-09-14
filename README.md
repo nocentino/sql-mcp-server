@@ -327,13 +327,13 @@ One of the things I'm most happy with in this design is how the multi-instance s
 ### Instance configuration (`.env`)
 
 ```
-INSTANCES=[
-  {"name":"default",    "host":"sqlserver1",  "port":1433, "user":"dba_monitor", "password":"..."},
-  {"name":"sqlserver2", "host":"sqlserver2", "port":1433, "user":"sa",          "password":"..."}
-]
+INSTANCES='[
+  {"name":"SqlServer1", "host":"sqlserver1", "port":1433, "user":"dba_monitor", "password":"..."},
+  {"name":"SqlServer2", "host":"sqlserver2", "port":1433, "user":"dba_monitor", "password":"..."}
+]'
 ```
 
-Add or remove instances by editing this file and restarting the container. No code changes required.
+Add or remove instances by editing this file and restarting the container. No code changes required. The first entry is the default when a tool call omits `instance_name`, and names are matched case-insensitively, so `sqlserver2` reaches `SqlServer2`. The `password` values must match `MONITOR_PASSWORD`, which is what the init scripts use to create the `dba_monitor` login.
 
 ### Connection flow
 
@@ -367,8 +367,9 @@ Each instance gets its own `ConnectionPool`. Here's how the settings are tuned:
 | `min` | 0 | No warm connections held — pools start empty |
 | `idleTimeout` | 30 s | Idle connections closed and evicted automatically |
 | Pools are lazy | — | First tool call to an instance opens the pool |
-| Pools are shared | — | All MCP sessions reuse the same per-instance pool |
-| Error recovery | — | Pool errors evict the pool; next request reconnects automatically |
+| Pools are shared | — | All MCP sessions reuse the same per-instance pool; concurrent first calls share one connect |
+| Error recovery | — | Pool errors evict and close the pool; next request reconnects automatically |
+| Row cap | 200 default | Results are capped server-side (`execute_query` 500, `get_index_usage_stats` 1000); every response reports `truncated` and `row_limit` |
 
 ### Fan-out across the fleet
 
@@ -414,9 +415,10 @@ curl -X POST http://localhost:5001/graphql \
 If you want to poke at the database directly during testing:
 
 ```bash
-source .env
+# The SQL Server containers already carry SQLCMDPASSWORD (the sa password from .env),
+# so sqlcmd inside them needs no -P and the password never appears on a command line.
 docker compose exec sqlserver1 /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost -U sa -P "${SA_PASSWORD}" -C -d ProductsDB \
+  -S localhost -U sa -C -d ProductsDB \
   -Q "SELECT TOP 5 ProductName, UnitPrice FROM Products"
 ```
 
@@ -482,7 +484,7 @@ docker compose down -v    # stop and delete all data
 │   │   ├── index.ts             # Streamable HTTP transport, MCP session management
 │   │   ├── tools.ts             # 34 tools (list_instances, fan_out_query, execute_query + 31 DBA tools)
 │   │   ├── connectionManager.ts # Multi-instance pool manager lazy, per-instance, self-healing
-│   │   └── safety.ts            # Query allowlist (SELECT / WITH / DECLARE only)
+│   │   └── safety.ts            # Read-only guard for execute_query / fan_out_query (SELECT / WITH / DECLARE; DML, EXEC, DDL blocked)
 │   ├── Dockerfile
 │   └── package.json
 ├── demos/                       # walkthrough demo scripts
@@ -504,18 +506,19 @@ docker compose down -v    # stop and delete all data
 │   └── mcp-integration.mjs      # raw MCP protocol test harness
 └── docs/
     ├── QUICKSTART.md
-    └── MCP-CLIENT-EXAMPLES.md   # mcp.json config for VS Code, Claude Desktop, etc.
+    ├── AG-SETUP.md                       # Always On AG setup notes and verification commands
+    └── HANDOFF-row-limit-truncation.md   # diagnosis record for the row-limit bugs fixed in v1.1.0
 ```
 
 ## SQL MCP Server Tools
 
-Here's the full list of tools available in the `sql-dba` server. Call `list_instances` first if you haven't specified which server you want to target.
+Here's the full list of 34 tools available in the `sql-dba` server. Call `list_instances` first if you haven't specified which server you want to target; otherwise the first registered instance is used. Every result-set tool reports `truncated` and `row_limit` alongside its rows.
 
 ### Instance Management
 | Tool | Description |
 |---|---|
 | `list_instances` | List all registered SQL Server instances — call first when no instance is specified |
-| `fan_out_query` | Run any T-SQL on all (or a subset of) instances in parallel; results keyed by instance name |
+| `fan_out_query` | Run the same read-only T-SQL on all (or a subset of) instances in parallel; results keyed by instance name |
 
 ### General Query & Session Monitoring
 | Tool | Description |
@@ -572,6 +575,14 @@ Here's the full list of tools available in the `sql-dba` server. Call `list_inst
 | `get_ag_health` | Always On AG replica sync state, send/redo queue |
 | `get_backup_status` | Last full/diff/log backup per database |
 | `get_job_status` | SQL Agent job status: last run, currently executing, failed jobs |
+
+### Security & Auditing
+| Tool | Description |
+|---|---|
+| `get_security_config_drift` | Security-relevant `sp_configure` settings compared against a hardening baseline (xp_cmdshell, Ole Automation, CLR, remote access, etc.) |
+| `get_sysadmin_members` | Members of privileged server roles (sysadmin, securityadmin, serveradmin) with login type and status |
+| `get_failed_logins` | Failed login attempts from the error log, aggregated by login name over a time window |
+| `get_orphaned_users` | Database users whose SID has no matching server login, per database |
 
 ## DAB entities (ProductsDB)
 

@@ -67,6 +67,37 @@ SQL2_RESULT=$(docker compose exec -T -e SQLCMDPASSWORD="$SQL_PASS" sqlserver2 \
 [ -n "$SQL2_RESULT" ] && ok "sqlserver2 reachable ($SQL2_RESULT)" || fail "sqlserver2 connection"
 
 echo ""
+
+# ── Row-limit / truncation regression (v1.1.0) ───────────────
+# Runs over the real MCP protocol. Prefers a host node; falls back to the same
+# containerised invocation mcp-integration.mjs documents.
+echo "Row-limit / truncation regression"
+
+TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if command -v node >/dev/null 2>&1; then
+  MCP_URL="$DBA_URL" node "$TESTS_DIR/truncation-regression.mjs" >/tmp/trunc-regression.$$ 2>&1
+  RC=$?
+elif command -v docker >/dev/null 2>&1; then
+  docker run --rm -e MCP_URL=http://host.docker.internal:3001 \
+    -v "$TESTS_DIR:/tests:ro" node:22-alpine \
+    node /tests/truncation-regression.mjs >/tmp/trunc-regression.$$ 2>&1
+  RC=$?
+else
+  RC=127
+fi
+
+if [ $RC -eq 0 ]; then
+  ok "truncation regression ($(grep -cE '^  PASS' /tmp/trunc-regression.$$) checks)"
+  grep -E '^  SKIP' /tmp/trunc-regression.$$ | sed 's/^  SKIP/    skipped:/'
+elif [ $RC -eq 127 ]; then
+  fail "truncation regression (neither node nor docker available)"
+else
+  fail "truncation regression — failing checks:"
+  grep -E '^  FAIL' /tmp/trunc-regression.$$ | sed 's/^/    /'
+fi
+rm -f /tmp/trunc-regression.$$
+
+echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 echo ""
 [ $FAIL -eq 0 ] && exit 0 || exit 1
