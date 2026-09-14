@@ -51,18 +51,18 @@ echo ""
 # ── SQL Server direct ────────────────────────────────────────
 echo "SQL Server direct"
 
-RESULT=$(docker compose exec -T sqlserver1 \
-  /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SQL_PASS" -C -d ProductsDB \
+RESULT=$(docker compose exec -T -e SQLCMDPASSWORD="$SQL_PASS" sqlserver1 \
+  /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -d ProductsDB \
   -Q "SELECT COUNT(*) FROM dbo.Products" -h -1 2>/dev/null | head -1 | xargs)
 [[ "$RESULT" =~ ^[0-9]+$ ]] && ok "ProductsDB reachable ($RESULT products)" || fail "SQL Server connection"
 
-DBA_RESULT=$(docker compose exec -T sqlserver1 \
-  /opt/mssql-tools18/bin/sqlcmd -S localhost -U dba_monitor -P "${MONITOR_PASSWORD}" -C \
+DBA_RESULT=$(docker compose exec -T -e SQLCMDPASSWORD="${MONITOR_PASSWORD}" sqlserver1 \
+  /opt/mssql-tools18/bin/sqlcmd -S localhost -U dba_monitor -C \
   -Q "SELECT COUNT(*) FROM sys.dm_exec_sessions" -h -1 2>/dev/null | head -1 | xargs)
 [[ "$DBA_RESULT" =~ ^[0-9]+$ ]] && ok "dba_monitor can query DMVs ($DBA_RESULT sessions)" || fail "dba_monitor DMV access"
 
-SQL2_RESULT=$(docker compose exec -T sqlserver2 \
-  /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SQL_PASS" -C \
+SQL2_RESULT=$(docker compose exec -T -e SQLCMDPASSWORD="$SQL_PASS" sqlserver2 \
+  /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C \
   -Q "SELECT @@SERVERNAME" -h -1 2>/dev/null | xargs)
 [ -n "$SQL2_RESULT" ] && ok "sqlserver2 reachable ($SQL2_RESULT)" || fail "sqlserver2 connection"
 

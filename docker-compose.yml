@@ -1,3 +1,13 @@
+# Shared healthcheck for both SQL Server containers. sqlcmd reads the sa password
+# from SQLCMDPASSWORD (set in each service's environment) so it never appears on
+# a command line, and -b makes the exit code authoritative — no output parsing.
+x-sql-healthcheck: &sql-healthcheck
+  test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 3 -t 3 -Q 'SELECT 1' >/dev/null 2>&1"]
+  interval: 10s
+  timeout: 10s
+  retries: 10
+  start_period: 30s
+
 services:
   # SQL Server 2025 (latest with advanced features)
   sqlserver1:
@@ -8,6 +18,7 @@ services:
     environment:
       - ACCEPT_EULA=${ACCEPT_EULA:-Y}
       - MSSQL_SA_PASSWORD=${SA_PASSWORD}
+      - SQLCMDPASSWORD=${SA_PASSWORD}
       - MSSQL_PID=Developer
       - MSSQL_ENABLE_HADR=1
     ports:
@@ -16,18 +27,16 @@ services:
       - sql-data:/var/opt/mssql
       - ag-certs:/var/opt/ag-certs
       - ag-backups:/var/opt/mssql/backup
-      - ./scripts/ag/init-sqlserver1.sql:/docker-entrypoint-initdb.d/init-sqlserver1.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${SA_PASSWORD}\" -C -l 5 -t 5 -h -1 -Q \"SET NOCOUNT ON; SELECT 'PROBEOK'\" 2>/dev/null | grep -q '^PROBEOK$$'"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
+    healthcheck: *sql-healthcheck
     networks:
       - sql-mcp-network
     restart: unless-stopped
 
-  # Initialize database with sample data and DBA monitoring infrastructure
+  # Initialize ProductsDB, sample data, and the dba_monitor / dab_app accounts.
+  # sqlcmd resolves $(MONITOR_PASSWORD) / $(DAB_PASSWORD) in the script from
+  # the container environment, so the passwords come from .env, not the SQL.
+  # -b fails the container if any batch errors, so a half-applied init cannot
+  # satisfy service_completed_successfully.
   sql-init:
     image: mcr.microsoft.com/mssql/server:2025-latest
     platform: linux/amd64
@@ -35,16 +44,13 @@ services:
     depends_on:
       sqlserver1:
         condition: service_healthy
+    environment:
+      - SQLCMDPASSWORD=${SA_PASSWORD}
+      - MONITOR_PASSWORD=${MONITOR_PASSWORD}
+      - DAB_PASSWORD=${DAB_PASSWORD}
     volumes:
       - ./scripts:/scripts:ro
-    command: >
-      /bin/bash -c "
-        echo 'Waiting for SQL Server to be ready...' &&
-        sleep 10 &&
-        echo 'Initializing ProductsDB and dba_monitor account...' &&
-        /opt/mssql-tools18/bin/sqlcmd -S sqlserver1 -U sa -P '${SA_PASSWORD}' -C -i /scripts/ag/init-sqlserver1.sql &&
-        echo 'All initialization complete!'
-      "
+    command: ["/opt/mssql-tools18/bin/sqlcmd", "-S", "sqlserver1", "-U", "sa", "-C", "-b", "-i", "/scripts/ag/init-sqlserver1.sql"]
     networks:
       - sql-mcp-network
 
@@ -82,6 +88,7 @@ services:
     environment:
       - ACCEPT_EULA=${ACCEPT_EULA:-Y}
       - MSSQL_SA_PASSWORD=${SA_PASSWORD}
+      - SQLCMDPASSWORD=${SA_PASSWORD}
       - MSSQL_PID=Developer
       - MSSQL_ENABLE_HADR=1
     ports:
@@ -89,12 +96,7 @@ services:
     volumes:
       - ag-certs:/var/opt/ag-certs
       - ag-backups:/var/opt/mssql/backup
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${SA_PASSWORD}\" -C -l 5 -t 5 -h -1 -Q \"SET NOCOUNT ON; SELECT 'PROBEOK'\" 2>/dev/null | grep -q '^PROBEOK$$'"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
+    healthcheck: *sql-healthcheck
     networks:
       - sql-mcp-network
     restart: unless-stopped
@@ -107,23 +109,23 @@ services:
     depends_on:
       sqlserver2:
         condition: service_healthy
+    environment:
+      - SQLCMDPASSWORD=${SA_PASSWORD}
+      - MONITOR_PASSWORD=${MONITOR_PASSWORD}
     volumes:
       - ./scripts:/scripts:ro
-    command: >
-      /bin/bash -c "
-        echo 'Creating dba_monitor on sqlserver2...' &&
-        /opt/mssql-tools18/bin/sqlcmd -S sqlserver2 -U sa -P '${SA_PASSWORD}' -C -i /scripts/ag/init-sqlserver2.sql &&
-        echo 'sqlserver2 initialization complete!'
-      "
+    command: ["/opt/mssql-tools18/bin/sqlcmd", "-S", "sqlserver2", "-U", "sa", "-C", "-b", "-i", "/scripts/ag/init-sqlserver2.sql"]
     networks:
       - sql-mcp-network
 
-  # SQL Server DBA MCP Server — full T-SQL access to DMVs for agent-driven monitoring
+  # SQL Server DBA MCP Server — read-only DMV access for agent-driven monitoring.
+  # Receives only INSTANCES: this container talks to the agent, so it should not
+  # hold the sa or dab_app passwords.
   sql-mcp-server:
     build: ./sql-mcp-server
     container_name: sql-mcp-dba
-    env_file:
-      - .env
+    environment:
+      - INSTANCES=${INSTANCES}
     ports:
       - "3001:3000"
     depends_on:

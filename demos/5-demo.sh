@@ -59,7 +59,7 @@ code sql-mcp-server/src/connectionManager.ts
 
 ############################################################################################################
 # Step 5 — The instance_name parameter in every tool
-# instanceParam is a shared spread constant — one line adds it to all 30 tools
+# instanceParam is a shared spread constant — one line adds it to all 34 tools
 ############################################################################################################
 
 code sql-mcp-server/src/tools.ts

@@ -30,21 +30,34 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Configuration
-SA_PASSWORD="${SA_PASSWORD:-S0methingS@Str0ng!}"
+# Configuration — the sa password comes from .env (or an exported SA_PASSWORD).
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+if [ -z "${SA_PASSWORD:-}" ] && [ -f "$REPO_ROOT/.env" ]; then
+    SA_PASSWORD="$(grep -E '^SA_PASSWORD=' "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | sed -E "s/^['\"]//; s/['\"]$//")"
+fi
+: "${SA_PASSWORD:?SA_PASSWORD not set — export it or set it in .env}"
 PRIMARY_CONTAINER="sql-mcp-sqlserver1"
 SECONDARY_CONTAINER="sql-mcp-sqlserver2"
 AG_NAME="TestAG"
 DB_NAME="TestDB"
 
-# Helper function to execute SQL on a container
+# Helper function to execute SQL on a container.
+# The password travels via SQLCMDPASSWORD (not argv), -b makes sqlcmd exit
+# non-zero on any SQL error, and a failure aborts the script (set -e) with the
+# server's message instead of being swallowed.
 execute_sql() {
     local container=$1
     local sql=$2
     local server=${3:-localhost}
-    
-    docker exec "$container" /opt/mssql-tools18/bin/sqlcmd \
-        -S "$server" -U sa -P "$SA_PASSWORD" -C -Q "$sql" -h -1 2>&1 | grep -v "^$" || true
+    local out
+
+    if ! out=$(docker exec -e SQLCMDPASSWORD="$SA_PASSWORD" "$container" /opt/mssql-tools18/bin/sqlcmd \
+        -S "$server" -U sa -C -b -Q "$sql" -h -1 2>&1); then
+        log_error "sqlcmd failed on $container:"
+        printf '%s\n' "$out" >&2
+        return 1
+    fi
+    printf '%s\n' "$out" | grep -v "^$" || true
 }
 
 # Helper function to execute SQL file on a container
@@ -52,8 +65,8 @@ execute_sql_file() {
     local container=$1
     local sql_file=$2
     
-    docker exec "$container" /opt/mssql-tools18/bin/sqlcmd \
-        -S localhost -U sa -P "$SA_PASSWORD" -C -i "$sql_file"
+    docker exec -e SQLCMDPASSWORD="$SA_PASSWORD" "$container" /opt/mssql-tools18/bin/sqlcmd \
+        -S localhost -U sa -C -b -i "$sql_file"
 }
 
 # Helper function for progress messages
@@ -419,7 +432,7 @@ if [[ "$PRIMARY_COUNT" == "$SECONDARY_COUNT" ]]; then
     echo "Failover:     MANUAL"
     echo ""
     log_info "You can now test replication by inserting data on the primary:"
-    echo "  docker exec $PRIMARY_CONTAINER /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P '$SA_PASSWORD' -C -Q \"INSERT INTO ${DB_NAME}.dbo.TestData (TestValue) VALUES ('Test Row')\""
+    echo "  docker exec $PRIMARY_CONTAINER /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P '<SA_PASSWORD>' -C -Q \"INSERT INTO ${DB_NAME}.dbo.TestData (TestValue) VALUES ('Test Row')\""
     echo ""
 else
     log_error "Row counts don't match! Check synchronization status."

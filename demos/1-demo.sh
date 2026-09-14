@@ -6,7 +6,7 @@ source "${BASH_SOURCE[0]%/*}/../.env"
 # 1. The Architecture — Your SQL Server, Talking to an AI Agent
 #    Model Context Protocol (MCP) lets GitHub Copilot call your own servers as tools.
 #    We have two MCP servers:
-#      - sql-dba  : 28 DMV-backed diagnostic tools, full T-SQL read access
+#      - sql-dba  : 34 DMV-backed diagnostic tools, full T-SQL read access
 #      - products-db : Data API Builder — natural-language CRUD over ProductsDB
 #
 #    The AI never touches the database directly.
@@ -29,7 +29,7 @@ source "${BASH_SOURCE[0]%/*}/../.env"
 #   ┌─────────────┐   ┌─────────────────┐
 #   │  sql-dba    │   │  products-db    │
 #   │  port 3001  │   │  port 5001      │
-#   │  28 tools   │   │  DAB / REST     │
+#   │  34 tools   │   │  DAB / REST     │
 #   └──────┬──────┘   └───────┬─────────┘
 #          │                  │
 #          └─────────┬────────┘

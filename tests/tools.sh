@@ -1,5 +1,5 @@
 #!/bin/bash
-# Integration test suite for all 30 SQL MCP server tools.
+# Integration test suite for all 34 SQL MCP server tools.
 # Delegates to tests/mcp-integration.mjs via Node 22 in Docker.
 #
 # Prerequisites: server running on localhost:3001 (docker compose up -d)
@@ -15,6 +15,9 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 MCP_URL="${1:-http://sql-mcp-dba:3000}"
+# The compose network is named after the project (directory) — discover it
+# instead of hard-coding a project name.
+NETWORK="$(docker network ls --filter name=sql-mcp-network --format '{{.Name}}' | head -1)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_FILE="${SCRIPT_DIR}/mcp-integration.mjs"
 
@@ -38,7 +41,7 @@ echo -e "${GREEN}OK${NC}"
 echo
 
 docker run --rm \
-  --network sql-mcp_sql-mcp-network \
+  --network "${NETWORK:?compose network sql-mcp-network not found — is the stack running?}" \
   -e MCP_URL="$MCP_URL" \
-  -v "${SCRIPT_DIR}/tests:/tests:ro" \
+  -v "${SCRIPT_DIR}:/tests:ro" \
   node:22-alpine node /tests/mcp-integration.mjs

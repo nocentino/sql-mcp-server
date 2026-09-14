@@ -96,7 +96,7 @@ code sql-mcp-server/src/index.ts
 
 
 ############################################################################################################
-# Look at the tool implementations — all 28 DBA diagnostic tools
+# Look at the tool implementations — all 34 DBA diagnostic tools
 # Each tool wraps a DMV query and returns structured JSON to the agent
 ############################################################################################################
 

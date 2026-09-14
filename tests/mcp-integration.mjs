@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * MCP Integration Test Suite — verifies all 30 tools via the real MCP protocol.
+ * MCP Integration Test Suite — verifies all 34 tools via the real MCP protocol.
  * Uses Streamable HTTP transport (POST /mcp).
  *
  * Run:
@@ -155,10 +155,96 @@ const TESTS = [
     args: { query: "SELECT @@VERSION AS server_version, SERVERPROPERTY('Edition') AS edition" },
     check(text) {
       const d = parseJson(text);
-      if (!Array.isArray(d) || d.length === 0) throw new Error("Expected non-empty array");
-      if (!String(d[0].server_version).includes("SQL Server"))
-        throw new Error(`Unexpected version value: ${d[0].server_version}`);
+      arr(d, "rows", 1);
+      if (!String(d.rows[0].server_version).includes("SQL Server"))
+        throw new Error(`Unexpected version value: ${d.rows[0].server_version}`);
+      if (d.truncated !== false || d.row_limit !== 500)
+        throw new Error(`Expected truncated=false,row_limit=500 got ${d.truncated},${d.row_limit}`);
     },
+  },
+
+  // ── Row limit / truncation (see HANDOFF-row-limit-truncation.md) ──────────
+  {
+    // Source set is millions of rows; the cap must be reported, not silent.
+    tool: "execute_query",
+    label: "execute_query (truncation reported)",
+    args: { query: "SELECT a.name AS n1, b.name AS n2 FROM sys.all_objects a CROSS JOIN sys.all_objects b" },
+    check(text) {
+      const d = parseJson(text);
+      arr(d, "rows");
+      if (d.rows.length !== 500) throw new Error(`Expected exactly 500 rows, got ${d.rows.length}`);
+      if (d.truncated !== true) throw new Error(`Expected truncated=true, got ${d.truncated}`);
+    },
+  },
+  {
+    // Small result: no sentinel row leaks, truncated stays false.
+    tool: "execute_query",
+    label: "execute_query (small result not truncated)",
+    args: { query: "SELECT name FROM sys.databases ORDER BY database_id" },
+    check(text) {
+      const d = parseJson(text);
+      arr(d, "rows", 4);
+      if (d.rows.length >= 500) throw new Error(`Unexpected row count ${d.rows.length}`);
+      if (d.truncated !== false) throw new Error(`Expected truncated=false, got ${d.truncated}`);
+      if (d.rows[0].name !== "master") throw new Error(`First row should be master, got ${d.rows[0].name}`);
+    },
+  },
+  {
+    // Exactly-at-limit boundary: 500 rows must come back untruncated.
+    tool: "execute_query",
+    label: "execute_query (exactly 500 rows, not truncated)",
+    args: { query: "SELECT TOP 500 a.name AS n1, b.name AS n2 FROM sys.all_objects a CROSS JOIN sys.all_objects b" },
+    check(text) {
+      const d = parseJson(text);
+      arr(d, "rows");
+      if (d.rows.length !== 500) throw new Error(`Expected exactly 500 rows, got ${d.rows.length}`);
+      if (d.truncated !== false) throw new Error(`Expected truncated=false at the boundary, got ${d.truncated}`);
+    },
+  },
+  {
+    // A tool-level TOP is honoured: cap is 256, never the old default of 200.
+    tool: "get_cpu_history",
+    label: "get_cpu_history (TOP 256 honoured)",
+    args: {},
+    check(text) {
+      const d = parseJson(text);
+      arr(d, "cpu_history", 1);
+      if (d.row_limit !== 256) throw new Error(`Expected row_limit=256, got ${d.row_limit}`);
+      if (d.cpu_history.length > 256) throw new Error(`Got ${d.cpu_history.length} rows, more than TOP 256`);
+      if (d.truncated !== false) throw new Error(`Expected truncated=false, got ${d.truncated}`);
+      if (d.cpu_history.length === 200) throw new Error("Exactly 200 rows — old default cap is still being applied");
+    },
+  },
+
+  // ── Safety: fan_out_query must reject what execute_query rejects ──────────
+  {
+    tool: "fan_out_query",
+    label: "fan_out_query (blocks EXEC without semicolon)",
+    args: { query: "SELECT 1\nEXEC sp_who" },
+    expectError: /blocked keyword/,
+  },
+  {
+    tool: "execute_query",
+    label: "execute_query (blocks DELETE without FROM)",
+    args: { query: "SELECT 1; DELETE dbo.Products WHERE ProductID = 1" },
+    expectError: /blocked keyword/,
+  },
+  {
+    tool: "execute_query",
+    label: "execute_query (keyword inside string literal allowed)",
+    args: { query: "SELECT COUNT(*) AS n FROM sys.database_permissions WHERE permission_name IN ('DELETE','INSERT','EXECUTE')" },
+    check(text) {
+      const d = parseJson(text);
+      arr(d, "rows", 1);
+    },
+  },
+
+  // ── Instance routing: case-insensitive names, sensible default ────────────
+  {
+    tool: "execute_query",
+    label: "execute_query (unknown instance is an error)",
+    args: { query: "SELECT 1 AS one", instance_name: "nope" },
+    expectError: /Unknown instance "nope"\. Available: /,
   },
 
   {
@@ -520,12 +606,12 @@ const TESTS = [
     args: {},
     check(text) {
       const d = parseJson(text);
-      if (!Array.isArray(d)) throw new Error("Expected array of instances");
-      const names = d.map((i) => i.name);
-      if (!names.includes("default"))
-        throw new Error(`Missing "default" instance (got: ${names.join(", ")})`);
+      if (!Array.isArray(d) || d.length < 2) throw new Error(`Expected >= 2 instances, got ${JSON.stringify(d).slice(0, 80)}`);
+      cols(d, "name", "host", "port", "user");
+      if (d.some((i) => "password" in i)) throw new Error("list_instances must not return passwords");
+      const names = d.map((i) => i.name.toLowerCase());
       if (!names.includes("sqlserver2"))
-        throw new Error(`Missing "sqlserver2" instance (got: ${names.join(", ")})`);
+        throw new Error(`Missing sqlserver2 instance (got: ${names.join(", ")})`);
     },
   },
 
@@ -538,26 +624,65 @@ const TESTS = [
         throw new Error(`Expected >= 2 instances_queried, got ${d.instances_queried}`);
       if (d.instances_failed > 0)
         throw new Error(`${d.instances_failed} instance(s) failed`);
-      if (!d.results?.default?.rows?.length)
-        throw new Error(`No rows from "default" instance`);
-      if (!d.results?.sqlserver2?.rows?.length)
-        throw new Error(`No rows from "sqlserver2" instance`);
-      const nameA = d.results.default.rows[0].server_name;
-      const nameB = d.results.sqlserver2.rows[0].server_name;
-      if (nameA === nameB)
-        throw new Error(`Both instances returned same server_name: ${nameA}`);
+      const entries = Object.entries(d.results ?? {});
+      if (entries.length !== d.instances_queried)
+        throw new Error(`results has ${entries.length} keys, instances_queried=${d.instances_queried}`);
+      for (const [name, r] of entries) {
+        if (!r.rows?.length) throw new Error(`No rows from "${name}" instance`);
+        if (typeof r.truncated !== "boolean") throw new Error(`"${name}" missing truncated flag`);
+      }
+      const serverNames = new Set(entries.map(([, r]) => r.rows[0].server_name));
+      if (serverNames.size !== entries.length)
+        throw new Error(`Instances returned duplicate server_name values: ${[...serverNames].join(", ")}`);
+    },
+  },
+
+  // ── Security & auditing tools ─────────────────────────────────────────────
+  {
+    tool: "get_security_config_drift",
+    args: {},
+    check(text) {
+      const d = parseJson(text);
+      arr(d, "config_drift");
+      if (typeof d.truncated !== "boolean") throw new Error("missing truncated flag");
+    },
+  },
+  {
+    tool: "get_sysadmin_members",
+    args: {},
+    check(text) {
+      const d = parseJson(text);
+      arr(d, "privileged_members", 1); // sa is always a member
+    },
+  },
+  {
+    tool: "get_failed_logins",
+    args: {},
+    check(text) {
+      const d = parseJson(text);
+      arr(d, "failed_logins");
+      if (typeof d.window_hours !== "number") throw new Error("missing window_hours");
+    },
+  },
+  {
+    tool: "get_orphaned_users",
+    args: {},
+    check(text) {
+      const d = parseJson(text);
+      arr(d, "orphaned_users");
     },
   },
 
   // ── Multi-instance: routing via instance_name param ───────────────────────
   {
     tool: "execute_query",
+    label: "execute_query (instance_name case-insensitive)",
     args: { query: "SELECT @@SERVERNAME AS server_name", instance_name: "sqlserver2" },
     check(text) {
       const d = parseJson(text);
-      if (!Array.isArray(d) || d.length === 0) throw new Error("Expected non-empty array");
-      if (d[0].server_name !== "sqlserver2")
-        throw new Error(`Expected "sqlserver2", got "${d[0].server_name}"`);
+      arr(d, "rows", 1);
+      if (d.rows[0].server_name !== "sqlserver2")
+        throw new Error(`Expected "sqlserver2", got "${d.rows[0].server_name}"`);
     },
   },
 
@@ -602,12 +727,19 @@ async function main() {
   const failures = [];
 
   for (const t of TESTS) {
-    const label = t.tool.padEnd(35);
+    const label = (t.label ?? t.tool).padEnd(52);
     process.stdout.write(`  ${label} `);
     try {
       const response = await mcp.call(t.tool, t.args);
-      const text = getText(response);
-      t.check(text);
+      if (t.expectError) {
+        // Tool-level errors come back as "Error: ..." text, not RPC errors.
+        const raw = response.result?.content?.[0]?.text ?? "";
+        if (!raw.startsWith("Error:")) throw new Error(`Expected an error, got: ${raw.slice(0, 80)}`);
+        if (!t.expectError.test(raw)) throw new Error(`Error did not match ${t.expectError}: ${raw.slice(0, 120)}`);
+      } else {
+        const text = getText(response);
+        t.check(text);
+      }
       console.log(`${G}PASS${X}`);
       pass++;
     } catch (e) {

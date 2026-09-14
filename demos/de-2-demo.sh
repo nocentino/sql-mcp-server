@@ -51,7 +51,7 @@ code "$HOME/Library/Application Support/Code/User/mcp.json"
 #   1. Click the Copilot icon → open Chat
 #   2. Switch to Agent mode (not Ask, not Edit)
 #   3. Click the tools icon (wrench) — you should see:
-#        sql-dba        → 28 tools (list_instances, get_server_info, get_wait_stats, ...)
+#        sql-dba        → 34 tools (list_instances, get_server_info, get_wait_stats, ...)
 #        products-db    → entity tools (Products, Categories, Orders, OrderDetails)
 #
 ############################################################################################################

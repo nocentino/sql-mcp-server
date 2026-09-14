@@ -156,12 +156,12 @@ code "$HOME/Library/Application Support/Code/User/mcp.json"
 
 
 ############################################################################################################
-# Migration path — 28 tools, same SQL, minimal churn
+# Migration path — 34 tools, same SQL, minimal churn
 ############################################################################################################
 
 # 1. Add connectionManager.ts (done — see src/connectionManager.ts)
 # 2. Add list_instances tool to tools.ts (5 lines)
-# 3. For each of the 28 tools:
+# 3. For each of the 34 tools:
 #      a. Add instance_name param (z.string().optional().default("default"))
 #      b. Replace:  await query(sql, ...)
 #         With:     await queryInstance(instance_name, sql, ...)

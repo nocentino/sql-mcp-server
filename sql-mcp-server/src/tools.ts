@@ -21,9 +21,6 @@ function err(message: string): ToolResult {
   return { content: [{ type: "text", text: `Error: ${message}` }] };
 }
 
-function truncationNote(count: number): string {
-  return `\n\n[Note: Result was truncated to ${count} rows. Use a more specific WHERE clause to narrow the result set.]`;
-}
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared instance_name parameter added to every tool.
 // Copilot can call list_instances to discover available names.
@@ -32,9 +29,8 @@ const instanceParam = {
   instance_name: z
     .string()
     .optional()
-    .default("SqlServer1")
     .describe(
-      "Named SQL Server instance to query. Call list_instances first to see all available instance names."
+      "Named SQL Server instance to query. Defaults to the first registered instance. Call list_instances first to see all available instance names."
     ),
 };
 
@@ -69,6 +65,9 @@ export function registerTools(server: McpServer): void {
         ),
     },
     async ({ query: sql, instances: subset }) => {
+      const check = validateQuery(sql);
+      if (!check.valid) return err(check.reason!);
+
       const targets = subset?.length
         ? listInstances().filter((i) => subset.includes(i.name))
         : listInstances();
@@ -123,9 +122,8 @@ export function registerTools(server: McpServer): void {
       if (!check.valid) return err(check.reason!);
 
       try {
-        const { rows, truncated } = await queryInstance(instance_name, sql, 500);
-        const note = truncated ? truncationNote(500) : "";
-        return { content: [{ type: "text", text: toJson(rows) + note }] };
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, sql, 500);
+        return ok({ rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -151,7 +149,7 @@ export function registerTools(server: McpServer): void {
         : "AND (r.session_id IS NOT NULL OR s.status NOT IN ('sleeping', 'dormant'))";
 
       try {
-        const { rows, truncated } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             s.session_id,
             s.login_name,
@@ -191,7 +189,7 @@ export function registerTools(server: McpServer): void {
             CASE WHEN r.blocking_session_id > 0 THEN 0 ELSE 1 END,
             COALESCE(r.total_elapsed_time, 0) DESC
         `);
-        return ok({ sessions: rows, truncated });
+        return ok({ sessions: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -207,7 +205,7 @@ export function registerTools(server: McpServer): void {
     { ...instanceParam },
     async ({ instance_name }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             r.session_id                                    AS blocked_session_id,
             r.blocking_session_id,
@@ -251,7 +249,7 @@ export function registerTools(server: McpServer): void {
         if (rows.length === 0) {
           return { content: [{ type: "text", text: "No blocking detected at this time." }] };
         }
-        return ok({ blocking_chains: rows });
+        return ok({ blocking_chains: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -288,7 +286,7 @@ export function registerTools(server: McpServer): void {
       };
 
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT TOP (${top_n})
             qs.execution_count,
             qs.total_worker_time / 1000                     AS total_cpu_ms,
@@ -319,7 +317,7 @@ export function registerTools(server: McpServer): void {
           WHERE t.text IS NOT NULL
           ORDER BY ${orderMap[order_by]}
         `);
-        return ok({ top_queries: rows, ordered_by: order_by });
+        return ok({ top_queries: rows, truncated, row_limit: rowLimit, ordered_by: order_by });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -401,7 +399,7 @@ export function registerTools(server: McpServer): void {
         : "";
 
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             wait_type,
             waiting_tasks_count,
@@ -417,7 +415,7 @@ export function registerTools(server: McpServer): void {
             ${benignFilter}
           ORDER BY wait_time_ms DESC
         `);
-        return ok({ wait_stats: rows, benign_waits_excluded: exclude_benign });
+        return ok({ wait_stats: rows, truncated, row_limit: rowLimit, benign_waits_excluded: exclude_benign });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -433,7 +431,7 @@ export function registerTools(server: McpServer): void {
     { ...instanceParam },
     async ({ instance_name }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             DB_NAME(f.database_id)                          AS database_name,
             f.file_id,
@@ -462,7 +460,7 @@ export function registerTools(server: McpServer): void {
           CROSS APPLY sys.dm_os_volume_stats(f.database_id, f.file_id) v
           ORDER BY io.io_stall DESC
         `);
-        return ok({ file_io_stats: rows });
+        return ok({ file_io_stats: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -478,7 +476,7 @@ export function registerTools(server: McpServer): void {
     { ...instanceParam },
     async ({ instance_name }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT TOP 256
             ROW_NUMBER() OVER (ORDER BY r.timestamp DESC)   AS sample_num,
             DATEADD(
@@ -525,8 +523,8 @@ export function registerTools(server: McpServer): void {
           ) r
           CROSS JOIN sys.dm_os_sys_info AS sys_info
           ORDER BY r.timestamp DESC
-        `);
-        return ok({ cpu_history: rows });
+        `, 256);
+        return ok({ cpu_history: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -652,7 +650,7 @@ export function registerTools(server: McpServer): void {
     { ...instanceParam },
     async ({ instance_name }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             d.database_id,
             d.name,
@@ -678,7 +676,7 @@ export function registerTools(server: McpServer): void {
             d.is_auto_shrink_on, d.log_reuse_wait_desc, d.create_date
           ORDER BY d.name
         `);
-        return ok({ databases: rows });
+        return ok({ databases: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -769,7 +767,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ instance_name, min_impact, top_n }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT TOP (${top_n})
             DB_NAME(mid.database_id)                        AS database_name,
             OBJECT_NAME(mid.object_id, mid.database_id)     AS table_name,
@@ -821,7 +819,7 @@ export function registerTools(server: McpServer): void {
             ],
           };
         }
-        return ok({ missing_indexes: rows });
+        return ok({ missing_indexes: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -857,8 +855,15 @@ export function registerTools(server: McpServer): void {
         ? ""
         : "AND (ius.user_seeks + ius.user_scans + ius.user_lookups) > 0";
 
+      // This batch manages its own row cap. queryInstance's SET ROWCOUNT wrapper
+      // would also clip the INSERT ... SELECT into #idx_usage, silently dropping
+      // indexes before the final SELECT ever sees them. SET ROWCOUNT 0 up front
+      // suppresses the wrapper; TOP (limit + 1) on the final SELECT is what lets
+      // queryInstance report truncation.
+      const limit = 1000;
       try {
-        const { rows, truncated } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
+          SET ROWCOUNT 0;
           IF OBJECT_ID('tempdb..#idx_usage') IS NOT NULL DROP TABLE #idx_usage;
           CREATE TABLE #idx_usage (
             database_name    NVARCHAR(128),
@@ -926,14 +931,13 @@ export function registerTools(server: McpServer): void {
           END;
           CLOSE db_cur; DEALLOCATE db_cur;
 
-          SELECT * FROM #idx_usage
+          SELECT TOP (${limit + 1}) * FROM #idx_usage
           ORDER BY
             CASE WHEN (user_seeks + user_scans + user_lookups) = 0 THEN 0 ELSE 1 END,
             user_updates DESC;
           DROP TABLE #idx_usage;
-        `, 1000);
-        const note = truncated ? truncationNote(1000) : "";
-        return { content: [{ type: "text", text: toJson({ index_usage_stats: rows }) + note }] };
+        `, limit);
+        return ok({ index_usage_stats: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -958,7 +962,7 @@ export function registerTools(server: McpServer): void {
         : "";
 
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             DB_NAME(mf.database_id)                         AS database_name,
             mf.file_id,
@@ -985,7 +989,7 @@ export function registerTools(server: McpServer): void {
             mf.type_desc DESC,
             mf.file_id
         `);
-        return ok({ database_files: rows });
+        return ok({ database_files: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1018,7 +1022,7 @@ export function registerTools(server: McpServer): void {
     async ({ instance_name, database_name, min_regression_pct, top_n }) => {
       const dbNameEscaped = database_name.replace(/'/g, "''");
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           USE [${dbNameEscaped}];
           
           WITH PlanStats AS (
@@ -1107,7 +1111,7 @@ export function registerTools(server: McpServer): void {
             ],
           };
         }
-        return ok({ query_store_regressions: rows, database: database_name });
+        return ok({ query_store_regressions: rows, truncated, row_limit: rowLimit, database: database_name });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1224,7 +1228,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ instance_name, min_duration_seconds }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             st.session_id,
             s.login_name,
@@ -1294,7 +1298,7 @@ export function registerTools(server: McpServer): void {
             ],
           };
         }
-        return ok({ long_running_transactions: rows });
+        return ok({ long_running_transactions: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1318,7 +1322,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ instance_name, max_deadlocks }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           WITH DeadlockData AS (
             SELECT
               CAST(target_data AS XML)                    AS target_data_xml
@@ -1352,7 +1356,7 @@ export function registerTools(server: McpServer): void {
             ],
           };
         }
-        return ok({ deadlock_history: rows, note: "Parse deadlock_xml for detailed victim/process/resource information" });
+        return ok({ deadlock_history: rows, truncated, row_limit: rowLimit, note: "Parse deadlock_xml for detailed victim/process/resource information" });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1382,7 +1386,7 @@ export function registerTools(server: McpServer): void {
       const zeroFilter = exclude_zero_waits ? "WHERE waiting_requests_count > 0" : "";
 
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT TOP (${top_n})
             latch_class,
             waiting_requests_count,
@@ -1407,7 +1411,7 @@ export function registerTools(server: McpServer): void {
             ],
           };
         }
-        return ok({ latch_stats: rows });
+        return ok({ latch_stats: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1423,7 +1427,7 @@ export function registerTools(server: McpServer): void {
     { ...instanceParam },
     async ({ instance_name }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             ag.name                                       AS ag_name,
             ar.replica_server_name,
@@ -1475,7 +1479,7 @@ export function registerTools(server: McpServer): void {
             ],
           };
         }
-        return ok({ ag_health: rows });
+        return ok({ ag_health: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1500,7 +1504,7 @@ export function registerTools(server: McpServer): void {
         : "AND d.database_id > 4";
 
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             d.name                                        AS database_name,
             d.recovery_model_desc,
@@ -1556,7 +1560,7 @@ export function registerTools(server: McpServer): void {
             END,
             last_full.backup_finish_date ASC
         `);
-        return ok({ backup_status: rows });
+        return ok({ backup_status: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1572,7 +1576,7 @@ export function registerTools(server: McpServer): void {
     { ...instanceParam },
     async ({ instance_name }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             d.name                                        AS database_name,
             vlf.vlf_count,
@@ -1594,7 +1598,7 @@ export function registerTools(server: McpServer): void {
             AND d.database_id > 4
           ORDER BY vlf.vlf_count DESC;
         `);
-        return ok({ vlf_counts: rows });
+        return ok({ vlf_counts: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1630,7 +1634,7 @@ export function registerTools(server: McpServer): void {
         : "WHERE database_id > 4 AND state = 0 AND is_read_only = 0";
 
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           IF OBJECT_ID('tempdb..#bp_objects') IS NOT NULL DROP TABLE #bp_objects;
           CREATE TABLE #bp_objects (
             database_name NVARCHAR(128),
@@ -1685,7 +1689,7 @@ export function registerTools(server: McpServer): void {
           SELECT TOP (${top_n}) * FROM #bp_objects ORDER BY buffer_mb DESC;
           DROP TABLE #bp_objects;
         `);
-        return ok({ buffer_pool_by_object: rows });
+        return ok({ buffer_pool_by_object: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1712,7 +1716,7 @@ export function registerTools(server: McpServer): void {
     async ({ instance_name, database_name, min_modification_pct }) => {
       const dbNameEscaped = database_name.replace(/'/g, "''");
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           USE [${dbNameEscaped}];
 
           SELECT
@@ -1753,7 +1757,7 @@ export function registerTools(server: McpServer): void {
             ],
           };
         }
-        return ok({ statistics_health: rows, database: database_name });
+        return ok({ statistics_health: rows, truncated, row_limit: rowLimit, database: database_name });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1786,7 +1790,7 @@ export function registerTools(server: McpServer): void {
     async ({ instance_name, database_name, min_fragmentation_pct, min_page_count }) => {
       const dbNameEscaped = database_name.replace(/'/g, "''");
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           USE [${dbNameEscaped}];
 
           SELECT
@@ -1836,7 +1840,7 @@ export function registerTools(server: McpServer): void {
             ],
           };
         }
-        return ok({ index_fragmentation: rows, database: database_name });
+        return ok({ index_fragmentation: rows, truncated, row_limit: rowLimit, database: database_name });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1852,7 +1856,7 @@ export function registerTools(server: McpServer): void {
     { ...instanceParam },
     async ({ instance_name }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             j.name                                        AS job_name,
             j.enabled                                     AS job_enabled,
@@ -1907,7 +1911,7 @@ export function registerTools(server: McpServer): void {
             END,
             j.name
         `);
-        return ok({ job_status: rows });
+        return ok({ job_status: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -1934,7 +1938,7 @@ export function registerTools(server: McpServer): void {
       try {
         // sys.dm_db_column_store_row_group_physical_stats is database-scoped,
         // so query each target database via sp_executesql with USE [db].
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           IF OBJECT_ID('tempdb..#cs_health') IS NOT NULL DROP TABLE #cs_health;
           CREATE TABLE #cs_health (
             database_name         NVARCHAR(128),
@@ -2013,7 +2017,7 @@ export function registerTools(server: McpServer): void {
             ],
           };
         }
-        return ok({ columnstore_health: rows });
+        return ok({ columnstore_health: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -2045,7 +2049,7 @@ export function registerTools(server: McpServer): void {
         : "";
 
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             RTRIM(object_name)                            AS object_name,
             RTRIM(counter_name)                           AS counter_name,
@@ -2069,7 +2073,7 @@ export function registerTools(server: McpServer): void {
             counter_name,
             instance_name
         `);
-        return ok({ perfmon_counters: rows });
+        return ok({ perfmon_counters: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -2090,7 +2094,7 @@ export function registerTools(server: McpServer): void {
     { ...instanceParam },
     async ({ instance_name }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           WITH baseline AS (
             SELECT * FROM (VALUES
               (N'xp_cmdshell',                    0),
@@ -2112,7 +2116,7 @@ export function registerTools(server: McpServer): void {
           JOIN baseline b ON b.name = c.name
           ORDER BY compliant ASC, c.name;
         `);
-        return ok({ config_drift: rows });
+        return ok({ config_drift: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -2132,7 +2136,7 @@ export function registerTools(server: McpServer): void {
     { ...instanceParam },
     async ({ instance_name }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           SELECT
             r.name                                   AS role_name,
             m.name                                   AS member_name,
@@ -2149,7 +2153,7 @@ export function registerTools(server: McpServer): void {
           WHERE r.name IN (N'sysadmin', N'securityadmin', N'serveradmin')
           ORDER BY r.name, m.name;
         `);
-        return ok({ privileged_members: rows });
+        return ok({ privileged_members: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -2178,7 +2182,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ instance_name, hours }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           DECLARE @log TABLE (LogDate DATETIME, ProcessInfo NVARCHAR(50), LogText NVARCHAR(MAX));
           INSERT INTO @log EXEC sys.sp_readerrorlog 0, 1, N'Login failed';
           SELECT
@@ -2202,7 +2206,7 @@ export function registerTools(server: McpServer): void {
               NULLIF(CHARINDEX(N'CLIENT: ', LogText), 0) + 8, 45), N''), N'<unknown>')
           ORDER BY attempts DESC;
         `);
-        return ok({ failed_logins: rows, window_hours: hours });
+        return ok({ failed_logins: rows, truncated, row_limit: rowLimit, window_hours: hours });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -2222,7 +2226,7 @@ export function registerTools(server: McpServer): void {
     { ...instanceParam },
     async ({ instance_name }) => {
       try {
-        const { rows } = await queryInstance(instance_name, `
+        const { rows, truncated, rowLimit } = await queryInstance(instance_name, `
           DECLARE @sql NVARCHAR(MAX) = N'';
           SELECT @sql = @sql + N'
             SELECT N''' + name + N''' AS database_name, dp.name AS user_name,
@@ -2239,7 +2243,7 @@ export function registerTools(server: McpServer): void {
           IF LEN(@sql) > 9 SET @sql = LEFT(@sql, LEN(@sql) - 9);  -- trim trailing UNION ALL
           IF LEN(@sql) > 0 EXEC sp_executesql @sql;
         `);
-        return ok({ orphaned_users: rows });
+        return ok({ orphaned_users: rows, truncated, row_limit: rowLimit });
       } catch (e: unknown) {
         return err(e instanceof Error ? e.message : String(e));
       }

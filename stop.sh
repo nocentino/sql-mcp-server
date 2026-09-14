@@ -4,6 +4,9 @@
 # SQL MCP Demo - Stop Script
 # =====================================================================
 
+# Always operate on this repo's compose project, regardless of the caller's CWD.
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
 echo "=========================================="
 echo "Stopping SQL MCP Demo Environment"
 echo "=========================================="

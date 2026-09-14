@@ -15,7 +15,7 @@ const PORT = parseInt(process.env.PORT ?? "3000", 10);
 initInstances();
 
 function createServer() {
-  const s = new McpServer({ name: "sql-server-dba", version: "1.0.0" });
+  const s = new McpServer({ name: "sql-server-dba", version: "1.1.0" });
   registerTools(s);
   return s;
 }
@@ -96,7 +96,7 @@ app.get("/health", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
     server: "sql-server-dba-mcp",
-    version: "1.0.0",
+    version: "1.1.0",
     sessions: transports.size,
     timestamp: new Date().toISOString(),
   });

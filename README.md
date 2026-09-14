@@ -12,7 +12,7 @@ For SQL Server, this means you can ask your agent a question like "are there any
 
 I tried the zero-code path first. [Data API Builder (DAB)](https://learn.microsoft.com/en-us/azure/data-api-builder/mcp/overview) can automatically stand up an MCP server. Point it at a user database, and it exposes REST, GraphQL, and MCP endpoints with no code. It works great for controlled agentic interactions against user databases. Ask "which products are low on inventory?" and the agent calls the DAB MCP endpoint, filters the Products table, and returns the answer. No SQL written, no schema required. But when I tried to expose system DMVs via DAB, it quickly broke down. Unsupported data types and query patterns in the system views prevented DAB from surfacing what I needed. So I wrote a custom server.
 
-The result is an MCP server with 30 tools that query SQL Server DMVs directly. A single container manages connection pools to multiple SQL Server instances. The agent never touches the database directly. It calls the tool server, the tool server runs the structured SQL tools, and you stay in control.
+The result is an MCP server with 34 tools that query SQL Server DMVs directly. A single container manages connection pools to multiple SQL Server instances. The agent never touches the database directly. It calls the tool server, the tool server runs the structured SQL tools, and you stay in control.
 
 So what you have here is a container-based environment that allows you to experiment with both DBA tasks via the custom-built MCP server and to use DAB to interact with a user database, all agentically.
 
@@ -21,9 +21,11 @@ So what you have here is a container-based environment that allows you to experi
 The demo wires up two complementary MCP servers, both running in Docker Compose:
 
 - **Data API Builder (DAB)**: zero-code MCP server for the ProductsDB application database. Exposes CRUD operations on Products, Categories, Orders, and OrderDetails over REST, GraphQL, and MCP. This is the right tool when you want natural-language data access against a known application schema.
-- **Custom SQL MCP Server**: 30 DBA-focused tools querying SQL Server DMVs directly. Blocking chains, wait stats, missing indexes, query plan cache, memory pressure, CPU history, AG health, backup status, and more. Supports multiple SQL Server instances. Add a new server to a JSON array in `.env`, restart the container, and the agent can reach it immediately.
+- **Custom SQL MCP Server**: 34 DBA-focused tools querying SQL Server DMVs directly. Blocking chains, wait stats, missing indexes, query plan cache, memory pressure, CPU history, AG health, backup status, and more. Supports multiple SQL Server instances. Add a new server to a JSON array in `.env`, restart the container, and the agent can reach it immediately.
 
-The multi-instance support is one of the parts I'm most happy with. Instances are registered via the `INSTANCES` environment variable at startup. Each gets its own lazy connection pool. The first tool call opens the pool, subsequent calls reuse it, and the pool self-heals if it errors. The `fan_out_query` tool runs the same T-SQL across all instances in parallel, so if one instance is down, it doesn't cancel queries on the others.
+The multi-instance support is one of the parts I'm most happy with. Instances are registered via the `INSTANCES` environment variable at startup. Each gets its own lazy connection pool. The first tool call opens the pool, subsequent calls reuse it, and the pool self-heals if it errors. The `fan_out_query` tool runs the same T-SQL across all instances in parallel, so if one instance is down, it doesn't cancel queries on the others. When a tool call omits `instance_name`, the first registered instance is used; names are matched case-insensitively.
+
+Every query tool caps its result set and says so: responses carry `truncated` (true when rows were cut) and `row_limit` (the cap that applied), so the agent can tell a complete result from a clipped one and narrow its query instead of reasoning over partial data. `execute_query` returns `{ rows, truncated, row_limit }`.
 
 Let's go.
 
@@ -478,7 +480,7 @@ docker compose down -v    # stop and delete all data
 ├── sql-mcp-server/
 │   ├── src/
 │   │   ├── index.ts             # Streamable HTTP transport, MCP session management
-│   │   ├── tools.ts             # 30 tools (list_instances, fan_out_query + 28 DBA tools)
+│   │   ├── tools.ts             # 34 tools (list_instances, fan_out_query, execute_query + 31 DBA tools)
 │   │   ├── connectionManager.ts # Multi-instance pool manager lazy, per-instance, self-healing
 │   │   └── safety.ts            # Query allowlist (SELECT / WITH / DECLARE only)
 │   ├── Dockerfile

@@ -26,7 +26,7 @@
 #   ┌─────────────┐   ┌──────────────────┐
 #   │  sql-dba    │   │  products-db     │
 #   │  port 3001  │   │  port 5001       │
-#   │  28 DMV     │   │  Data API        │
+#   │  34 DMV     │   │  Data API        │
 #   │  tools      │   │  Builder (DAB)   │
 #   └──────┬──────┘   └────────┬─────────┘
 #          │                   │

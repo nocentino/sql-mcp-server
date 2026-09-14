@@ -108,7 +108,7 @@ curl -s "http://localhost:5001/api/Products?\$orderby=UnitsInStock%20asc&\$first
 #
 #   1. Start the full stack in one command          ./start.sh
 #   2. Two MCP servers, one mcp.json entry each     mcp.json
-#   3. sql-dba: 28 DMV tools, multi-instance        get_blocking_chains, get_wait_stats, ...
+#   3. sql-dba: 34 DMV tools, multi-instance        get_blocking_chains, get_wait_stats, ...
 #   4. products-db (DAB): REST + GraphQL + MCP       no code, just dab-config.json
 #   5. Copilot never touched SQL Server directly
 #   6. Passwords live in .env, never in git
